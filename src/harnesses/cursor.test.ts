@@ -106,10 +106,16 @@ describe('cursor harness (fake agent)', () => {
     it('an ambiguous or unknown name → model_rejected with the listed values, no prompt', async () => {
         const list =
             'valid models: default[], fake-small[effort=low], fake-big[reasoning=low], fake-big[reasoning=high]';
-        for (const model of ['fake-big', 'fake-huge', 'fake-small[effort=high]']) {
+        const expected: Record<string, string> = {
+            'fake-big':
+                'model "fake-big" names several values; pick one: fake-big[reasoning=low], fake-big[reasoning=high]',
+            'fake-huge': `model "fake-huge" is not available; ${list}`,
+            'fake-small[effort=high]': `model "fake-small[effort=high]" is not available; ${list}`,
+        };
+        for (const [model, message] of Object.entries(expected)) {
             const { outcome, calls } = await cursorRun(`cursor/${model}`, 'auto');
             const payload = failed(outcome, 'model_rejected');
-            expect(payload.message).toBe(`model "${model}" is not available; ${list}`);
+            expect(payload.message).toBe(message);
             expect(summary(calls)).toStrictEqual(['start --force', 'authenticate cursor_login']);
         }
     });

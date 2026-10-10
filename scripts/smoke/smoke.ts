@@ -36,7 +36,7 @@ import type {
 // Spends tokens: run by hand, one harness at a time. Exit: 0 pass, 1 any FAIL or tool error, 2 usage/availability.
 
 const USAGE =
-    'usage: node scripts/smoke/smoke.ts <harness>/<model>[:<effort>] [--prompt "<text>"] [--cwd <dir>] [--timeout <s>] [--no-follow-up] [--schema] [--background] [--cancel] [--steer]';
+    'usage: node scripts/smoke/smoke.ts <harness>/<model>[:<effort>] [--prompt "<text>"] [--cwd <dir>] [--timeout <s>] [--no-follow-up] [--schema] [--background] [--cancel] [--steer [--steer-delay <s>]]';
 const DEFAULT_PROMPT =
     'Create a file named pong.txt in the current directory containing exactly the word pong (no newline needed), then reply with the single word: done.';
 const SCHEMA_PROMPT =
@@ -54,7 +54,7 @@ const FOLLOW_UP_PROMPT = 'Which file did you create in the previous step? Reply 
 const DEFAULT_TIMEOUT_S = 300;
 // No tool shows a background turn's activity (list_thronglets says only `running`, the tool-call progress ends at the
 // acceptance), so the steer waits a fixed time. Cursor keeps no session to load until a turn has produced output.
-const STEER_DELAY_MS = 10_000;
+const DEFAULT_STEER_DELAY_S = 10;
 // Past throng's whole shutdown of an adapter (stdin closed, SIGTERM after the exit grace, SIGKILL after another), plus slack.
 const ORPHAN_WAIT_MS = 2 * DEFAULT_EXIT_GRACE_MS + 2000;
 // submit-tool: the structured-output server the harness spawns; its argv carries the run's temp dir under our TMPDIR.
@@ -89,6 +89,7 @@ try {
             prompt: { type: 'string' },
             cwd: { type: 'string' },
             timeout: { type: 'string' },
+            'steer-delay': { type: 'string' },
             'no-follow-up': { type: 'boolean' },
             schema: { type: 'boolean' },
             background: { type: 'boolean' },
@@ -104,6 +105,8 @@ if (positionals.length !== 1) usage();
 const agent = positionals[0] ?? '';
 const timeoutS = values.timeout === undefined ? DEFAULT_TIMEOUT_S : Number(values.timeout);
 if (!(timeoutS > 0)) usage(`--timeout must be a positive number of seconds, got ${values.timeout}`);
+const steerDelayS = values['steer-delay'] === undefined ? DEFAULT_STEER_DELAY_S : Number(values['steer-delay']);
+if (!(steerDelayS >= 0)) usage(`--steer-delay must be a number of seconds, got ${values['steer-delay']}`);
 let spec;
 try {
     spec = parseAgentSpec(agent);
@@ -308,8 +311,8 @@ async function steerSteps(args: Record<string, unknown>): Promise<void> {
         `run_thronglet background answered ${textOf(accepted).slice(0, 200)}, expected state running`
     );
 
-    say(`wait ${STEER_DELAY_MS / 1000} s for the turn to get busy`);
-    await new Promise(r => setTimeout(r, STEER_DELAY_MS));
+    say(`wait ${steerDelayS} s for the turn to get busy`);
+    await new Promise(r => setTimeout(r, steerDelayS * 1000));
 
     say(`send_message session_id=${id} steer timeout_s=${timeoutS}`);
     const steered = await client.callTool(

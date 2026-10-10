@@ -71,7 +71,7 @@ What you notice:
 - File edits are never asked about, under any permission setting: Cursor applies them itself. `harness_mode: auto` launches it with `--force`, so shell, MCP tools and web search run without asking too; under `ask` those go to `permission_answers`.
 - No effort levels: a `:<effort>` suffix is ignored with a warning. No usage numbers.
 - `send_message` works: each turn picks the session up through `session/load`. Cursor stores a session only once its first turn has produced output: a steer or cancel that hits the first turn before that leaves nothing to continue, and the next `send_message` fails with `session_not_found`.
-- The model throng selects becomes Cursor's default for every ACP client on the machine (it is saved in `~/.cursor/acp-config.json`), e.g. for Cursor in Zed.
+- The model throng selects is saved as Cursor's ACP default in `~/.cursor/acp-config.json`, so another ACP client that starts `cursor-agent acp` without choosing a model gets it too (seen with a raw client; no editor checked).
 
 Over ACP:
 
@@ -81,5 +81,5 @@ Over ACP:
 - `session/new` returns `modes` (`agent` current, `plan`, `ask`), the unstable `models`, and config options `mode` and `model`. Model values carry their parameters in brackets: `default[]` (Auto), `gpt-5.4-nano[reasoning=medium]`, `claude-opus-5-5[context=300k,effort=medium,fast=false]`; `session/set_config_option` takes only a listed value and writes it to `~/.cursor/acp-config.json` (`selectedModelVariantId`). No `thought_level` option.
 - `--force` (a root flag, accepted after `acp`) auto-approves shell, MCP tools and web search. Without it they send `request_permission` (kinds `execute`, `other`, `search`, `fetch`; option ids `allow-once`, `allow-always`, `reject-once`). File edits never ask, with or without the flag.
 - MCP stdio servers from `session/new` work; the permission title of throng's submit tool is `throng_result-submit_result: submit_result`. `cursor/create_plan` arrives only in plan mode, which throng never sets.
-- After its stdin closes the process exits in about 1.8 s when idle and takes longer after a busy turn; throng's SIGTERM after the 5 s grace covers the rest.
+- After its stdin closes the process exits in about 1.8 s when idle and in under 0.5 s right after a turn. In 2 of 8 smoke runs adapter processes were still alive 7 s after the client closed, for a reason not found; throng's SIGTERM and SIGKILL (5 s apart) end them either way.
 - Also written outside the sessions directory: `~/.cursor/projects/`, `~/.cursor/plans/` (plan mode), `~/Library/Caches/cursor-compile-cache/`.

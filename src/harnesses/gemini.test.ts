@@ -140,7 +140,7 @@ describe('gemini harness (fake agent)', () => {
             'session_not_found'
         );
         expect(payload.message).toBe(
-            `session ${first.session_id} cannot take another message: the gemini harness has no session/resume, so its sessions are one turn`
+            `session ${first.session_id} cannot take another message: the gemini harness can't continue a session, so its sessions are one turn`
         );
         expect(payload.session_id).toBe(undefined);
         expect(starts(), 'no adapter process for the refused message').toBe(1);

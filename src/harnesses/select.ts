@@ -50,12 +50,14 @@ export function modelRejectedMessage(model: string, values: string[]): string {
 
 /**
  * The offered value `model` names: the exact value, else the only one whose name before its `[` parameters is `model`
- * (Cursor: `gpt-5.4-nano` → `gpt-5.4-nano[reasoning=medium]`). None or several → `model_rejected`.
+ * (Cursor: `gpt-5.4-nano` → `gpt-5.4-nano[reasoning=medium]`). None or several → `model_rejected`, several listed.
  */
 export function resolveModel(model: string, values: string[]): string {
     if (values.includes(model)) return model;
     const named = values.filter(v => v.includes('[') && v.slice(0, v.indexOf('[')) === model);
     if (named.length === 1 && named[0] !== undefined) return named[0];
+    if (named.length > 1)
+        throw new ThrongError('model_rejected', `model "${model}" names several values; pick one: ${named.join(', ')}`);
     throw new ThrongError('model_rejected', modelRejectedMessage(model, values));
 }
 

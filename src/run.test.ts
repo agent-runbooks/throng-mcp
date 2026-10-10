@@ -944,7 +944,7 @@ describe('sendMessage', () => {
                 'session_not_found'
             );
             expect(payload.message).toBe(
-                'session fake-one-turn cannot take another message: the claude harness has no session/resume, so its sessions are one turn'
+                "session fake-one-turn cannot take another message: the claude harness can't continue a session, so its sessions are one turn"
             );
             expect(payload.session_id).toBe(undefined);
         }

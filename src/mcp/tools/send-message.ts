@@ -42,7 +42,7 @@ export function sendMessage(input: SendMessageInput, ctx: RunContext): Promise<R
                 if (record.resumable === false) {
                     throw new ThrongError(
                         'session_not_found',
-                        `session ${input.session_id} cannot take another message: the ${record.harness} harness has no session/resume, so its sessions are one turn`
+                        `session ${input.session_id} cannot take another message: the ${record.harness} harness can't continue a session, so its sessions are one turn`
                     );
                 }
                 return { kind: 'resume', sessionId: input.session_id, record };

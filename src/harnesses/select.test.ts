@@ -161,9 +161,23 @@ describe('resolveModel', () => {
         expect(resolveModel('default', values)).toBe('default[]');
     });
 
-    it('an ambiguous or unknown name → model_rejected with the list', () => {
+    it('an ambiguous name → model_rejected naming its values', () => {
         const without = values.filter(v => v !== 'opus');
-        for (const model of ['opus', 'gpt-5.4', 'nano', 'gpt-5.4-nano[reasoning=low]']) {
+        try {
+            resolveModel('opus', without);
+            expect.unreachable('opus resolved');
+        } catch (err) {
+            expect(err).toBeInstanceOf(ThrongError);
+            expect((err as ThrongError).code).toBe('model_rejected');
+            expect((err as ThrongError).message).toBe(
+                'model "opus" names several values; pick one: opus[effort=low], opus[effort=high]'
+            );
+        }
+    });
+
+    it('an unknown name → model_rejected with the list', () => {
+        const without = values.filter(v => v !== 'opus');
+        for (const model of ['gpt-5.4', 'nano', 'gpt-5.4-nano[reasoning=low]']) {
             try {
                 resolveModel(model, without);
                 expect.unreachable(`${model} resolved`);
@@ -217,7 +231,9 @@ describe('selectModel / selectEffort (fake agent)', () => {
             await selectModel(worker, 'fake-small');
             expect(await turn('hi')).toBe('echo: hi [model=fake-small[effort=low] effort=?]');
             const err = await rejectsWith(selectModel(worker, 'fake-big'), 'model_rejected');
-            expect(err.message).toMatch(/^model "fake-big" is not available; valid models: default\[\], /);
+            expect(err.message).toBe(
+                'model "fake-big" names several values; pick one: fake-big[reasoning=low], fake-big[reasoning=high]'
+            );
         });
     });
 

@@ -1,5 +1,6 @@
 import * as acp from '@agentclientprotocol/sdk';
 import type {
+    AgentCapabilities,
     ClientConnection,
     InitializeResponse,
     PromptResponse,
@@ -53,6 +54,16 @@ const UNADVERTISED_TERMINAL_METHODS = [
 const SET_MODEL_METHOD = 'session/set_model';
 
 type HandshakeStep = 'initialize' | 'authenticate' | 'session/new' | 'session/resume' | 'session/load';
+
+/** How a later turn picks a session up (DESIGN §4.2 step 3); `undefined`: the agent offers no way. */
+export function continuation(
+    capabilities: AgentCapabilities | undefined,
+    allowLoad: boolean
+): 'session/resume' | 'session/load' | undefined {
+    if (capabilities?.sessionCapabilities?.resume != null) return 'session/resume';
+    if (allowLoad && capabilities?.loadSession === true) return 'session/load';
+    return undefined;
+}
 
 /** Workers from spawn until their close() finishes, handshake included. */
 const live = new Set<AcpWorker>();
@@ -224,38 +235,41 @@ class AcpWorker implements Worker {
                 });
                 this.#sessionId = created.sessionId;
                 this.#session = buildSession(created.sessionId, init, created);
-            } else if (init.agentCapabilities?.sessionCapabilities?.resume != null) {
-                step = 'session/resume';
-                this.#sessionId = start.sessionId;
-                const resumed = await agent.request(acp.methods.agent.session.resume, {
-                    sessionId: start.sessionId,
-                    cwd: start.cwd,
-                    mcpServers: start.mcpServers,
-                });
-                this.#session = buildSession(start.sessionId, init, resumed);
-            } else if (start.allowLoad && init.agentCapabilities?.loadSession) {
-                step = 'session/load';
-                this.#sessionId = start.sessionId;
-                this.#replaying = true;
-                try {
-                    const loaded = await agent.request(acp.methods.agent.session.load, {
-                        sessionId: start.sessionId,
-                        cwd: start.cwd,
-                        mcpServers: start.mcpServers,
-                    });
-                    // Notifications are dispatched a few microtasks after responses: replay chunks that arrived before
-                    // the response must still find the flag set.
-                    await new Promise(resolve => setImmediate(resolve));
-                    this.#session = buildSession(start.sessionId, init, loaded);
-                } finally {
-                    this.#replaying = false;
-                }
             } else {
-                const how = start.allowLoad ? 'session/resume or session/load' : 'session/resume';
-                throw this.#error(
-                    'session_not_found',
-                    `adapter does not support ${how}; cannot resume ${start.sessionId}`
-                );
+                const how = continuation(init.agentCapabilities, start.allowLoad === true);
+                if (how === undefined) {
+                    const offered = start.allowLoad ? 'session/resume or session/load' : 'session/resume';
+                    throw this.#error(
+                        'session_not_found',
+                        `adapter does not support ${offered}; cannot resume ${start.sessionId}`
+                    );
+                }
+                step = how;
+                this.#sessionId = start.sessionId;
+                const { sessionId, cwd, mcpServers } = start;
+                if (how === 'session/resume') {
+                    const resumed = await agent.request(acp.methods.agent.session.resume, {
+                        sessionId,
+                        cwd,
+                        mcpServers,
+                    });
+                    this.#session = buildSession(start.sessionId, init, resumed);
+                } else {
+                    this.#replaying = true;
+                    try {
+                        const loaded = await agent.request(acp.methods.agent.session.load, {
+                            sessionId,
+                            cwd,
+                            mcpServers,
+                        });
+                        // Notifications are dispatched a few microtasks after responses: replay chunks that arrived
+                        // before the response must still find the flag set.
+                        await new Promise(resolve => setImmediate(resolve));
+                        this.#session = buildSession(start.sessionId, init, loaded);
+                    } finally {
+                        this.#replaying = false;
+                    }
+                }
             }
         };
 

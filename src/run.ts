@@ -1,11 +1,11 @@
-import type { AgentCapabilities, McpServer, PromptResponse, SessionNotification } from '@agentclientprotocol/sdk';
+import type { McpServer, PromptResponse, SessionNotification } from '@agentclientprotocol/sdk';
 import { statSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Collector } from './acp/collector.ts';
 import type { WorkerHooks } from './acp/types.ts';
-import { startWorker } from './acp/worker.ts';
+import { continuation, startWorker } from './acp/worker.ts';
 import { type AgentSpec, formatAgentSpec } from './agent-spec.ts';
 import type { LoadedConfig } from './config.ts';
 import {
@@ -331,7 +331,7 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
                 description: request.description,
                 created_at: createdAt,
                 last_used_at: createdAt,
-                resumable: canContinue(worker.session.agentCapabilities, def.continueViaLoad === true),
+                resumable: continuation(worker.session.agentCapabilities, def.continueViaLoad === true) !== undefined,
                 turn_started_at: createdAt,
                 turn_pid: process.pid,
             }).catch((err: unknown) => {
@@ -510,12 +510,6 @@ async function readSubmitState(path: string, warn: (text: string) => void): Prom
         warn(`structured result unreadable: ${errorText(err)}`);
     }
     return undefined;
-}
-
-/** Whether a later turn can pick the session up: `session/resume`, or `session/load` when the harness opts into it. */
-function canContinue(capabilities: AgentCapabilities | undefined, viaLoad: boolean): boolean {
-    if (capabilities?.sessionCapabilities?.resume != null) return true;
-    return viaLoad && capabilities?.loadSession === true;
 }
 
 function isDirectory(path: string): boolean {
