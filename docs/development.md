@@ -107,6 +107,11 @@ THRONG_MCP_CONFIG=/tmp/throng-deny.yaml pnpm smoke:cursor
 THRONG_MCP_CONFIG=/tmp/throng-deny.yaml pnpm smoke:cursor -- --no-follow-up \
   --prompt "Run exactly this shell command and nothing else: echo pong > pong.txt. Do not edit files any other way. Then reply done."
 
+# 3b. the same shell command under auto: --force runs it without request_permission; PASS: pong.txt written,
+#     no `permission` line in the server log
+THRONG_MCP_CONFIG=/tmp/throng-auto.yaml pnpm smoke:cursor -- --no-follow-up \
+  --prompt "Run exactly this shell command and nothing else: echo pong > pong.txt. Do not edit files any other way. Then reply done."
+
 # 4. steer through session/load: PASS: send_message steer answered STEERED
 THRONG_MCP_CONFIG=/tmp/throng-auto.yaml pnpm smoke:cursor -- --steer
 
