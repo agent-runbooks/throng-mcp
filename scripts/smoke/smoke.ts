@@ -8,6 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import { parseAgentSpec } from '../../src/agent-spec.ts';
+import { resolveModel } from '../../src/harnesses/select.ts';
 import type {
     CancelThrongletOutput,
     ListHarnessesOutput,
@@ -30,6 +31,7 @@ import type {
 // interrupts it (DESIGN §3.3): its reply must contain STEERED, then list_thronglets shows the session idle; the pong.txt
 // and follow-up checks are skipped.
 // Gemini CLI has no session/resume (DESIGN §2.3): for harness gemini the follow-up is skipped and --steer is a usage error.
+// Cursor CLI continues a session through session/load, so its follow-up and --steer run like the others.
 // Spends tokens: run by hand, one harness at a time. Exit: 0 pass, 1 any FAIL or tool error, 2 usage/availability.
 
 const USAGE =
@@ -56,6 +58,7 @@ const ADAPTER_PATTERNS = [
     'codex-acp',
     'opencode acp',
     'gemini.*--acp',
+    'cursor-agent',
     `submit-tool\\.ts --schema ${escapeRegex(join(tmpdir(), 'throng-'))}`,
 ];
 const repo = resolve(fileURLToPath(new URL('../..', import.meta.url)));
@@ -132,6 +135,16 @@ function adapterPids(): Set<number> {
         for (const line of out.split('\n')) if (line.trim()) pids.add(Number(line.trim()));
     }
     return pids;
+}
+
+/** The server's own model resolution: a listed value, or a name before its `[` parameters (Cursor). */
+function offers(models: string[], model: string): boolean {
+    try {
+        resolveModel(model, models);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 function textOf(result: Record<string, unknown>): string {
@@ -384,7 +397,7 @@ try {
     if (!info) {
         console.log(`harness ${spec.harness} is not available (see its reason above)`);
         exitCode = 2;
-    } else if (!info.models.includes(spec.model)) {
+    } else if (!offers(info.models, spec.model)) {
         console.log(
             `model ${spec.model} is not offered by ${spec.harness}; valid models (${info.models.length} total):`
         );

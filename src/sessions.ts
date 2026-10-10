@@ -18,7 +18,8 @@ export interface SessionRecord {
     created_at: string;
     last_used_at: string;
     /**
-     * Whether the adapter advertised `sessionCapabilities.resume` in the handshake of the turn that created the session;
+     * Whether a later turn can continue the session, as the handshake of the turn that created it showed:
+     * `sessionCapabilities.resume`, or `loadSession` for a harness that continues through `session/load`;
      * absent (unknown) on records written by earlier versions.
      */
     resumable?: boolean;

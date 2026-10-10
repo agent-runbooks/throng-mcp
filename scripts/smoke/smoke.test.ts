@@ -206,6 +206,21 @@ describe('smoke script against the fake agent', () => {
         expect(tagAlive(tag), 'fake agent left running').toBe(false);
     });
 
+    it('cursor: the follow-up goes through session/load and answers pong.txt', async () => {
+        const { code, stdout, stderr, tag } = await smoke(
+            ['cursor/default', '--prompt', 'x'],
+            'cursor-write-pong',
+            bin,
+            {},
+            'cursor'
+        );
+        expect(code, stdout + stderr).toBe(0);
+        expect(stdout).toMatch(/PASS: pong\.txt written/);
+        expect(stdout).toMatch(/PASS: send_message answered pong\.txt/);
+        expect(stdout).toMatch(/PASS: no orphans/);
+        expect(tagAlive(tag), 'fake agent left running').toBe(false);
+    });
+
     it('gemini with --steer is a usage error', async () => {
         const { code, stdout, stderr } = await smoke(
             ['gemini/gemini-2.5-flash', '--steer'],

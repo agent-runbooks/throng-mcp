@@ -12,7 +12,7 @@ Out of scope: runner/DSL, message bus, UI, OTel, worktree/apply-back, trust gate
 
 ### 2.1 Environment
 
-node 24.11.1, pnpm 11.10, claude 2.1.282, codex 0.156.1, opencode 1.18.30. `cursor-agent` is not installed → Cursor is excluded from v1.
+node 24.11.1, pnpm 11.10, claude 2.1.282, codex 0.156.1, opencode 1.18.30. `cursor-agent` was not installed then, so Cursor was left out of v1; it came later (§2.3).
 
 ### 2.2 `@agentclientprotocol/sdk` 1.5.0 (`PROTOCOL_VERSION = 1`)
 
@@ -58,7 +58,15 @@ Gemini CLI 0.61.0 (`gemini --acp`; facts read from the source on 2026-10-03, bun
 - No `usage_update`, no `PromptResponse.usage`, no cost: token counts sit only in `PromptResponse._meta.quota`, which throng does not read.
 - Auth is Google-account OAuth, an API key or Vertex; `session/new` fails with `-32000` when there is none. The OAuth terms forbid using that login from third-party software, so Gemini is reached only through its own CLI.
 
-ACP registry (`https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`, format v1.0.0, 41 agents): `{id, name, version, description, distribution: npx{package,args,env} | binary{platform → {archive, cmd, args}}}`. Relevant ids: `claude-acp`, `codex-acp`, `opencode`. It gives launch commands only; model/effort/mode knobs differ per adapter.
+Cursor CLI 2026.10.01-e373342 (`cursor-agent acp`; the installer also links `agent`; spike THRONG-24 on a free account, 2026-10-10):
+- Auth: `initialize` lists `authMethods: [{id: 'cursor_login'}]`, and `session/new` fails with `-32000` "Authentication required. Please run 'agent login' first, then call authenticate() with methodId 'cursor_login'." until the client calls `authenticate {methodId: 'cursor_login'}`. The login itself is the user's `agent login` (tokens in the macOS keychain).
+- Capabilities: `loadSession: true`, `sessionCapabilities.list`, no `sessionCapabilities.resume`. `session/load {sessionId, cwd, mcpServers}` in a fresh process continues the session with its memory; before answering it replays the history as `session/update` (`user_message_chunk`, `agent_thought_chunk`, `agent_message_chunk`, `available_commands_update`).
+- `session/new` returns `modes` (`agent` current, `plan`, `ask`), the unstable `models`, and config options `mode` and `model`. Model values carry their parameters in brackets: `default[]` (Auto), `gpt-5.4-nano[reasoning=medium]`, `claude-opus-5-5[context=300k,effort=medium,fast=false]`; `session/set_config_option` takes only a listed value. No `thought_level` option.
+- `--force` (a root flag, accepted after `acp`) auto-approves shell, MCP tools and web search. Without it they send `request_permission` (kinds `execute`, `other`, `search`, `fetch`; option ids `allow-once`, `allow-always`, `reject-once`). File edits never ask, with or without the flag.
+- MCP stdio servers from `session/new` work; the permission title of our submit tool is `throng_result-submit_result: submit_result`. `cursor/create_plan` arrives only in plan mode, which throng never sets.
+- On a free plan a non-Auto model answers with the text "Upgrade your plan to continue" and `end_turn`; throng passes it through as the result.
+
+ACP registry (`https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`, format v1.0.0, 41 agents): `{id, name, version, description, distribution: npx{package,args,env} | binary{platform → {archive, cmd, args}}}`. Relevant ids: `claude-acp`, `codex-acp`, `opencode`, `gemini`, `cursor`. It gives launch commands only; model/effort/mode knobs differ per adapter.
 
 ### 2.4 Claude Code 2.1.282 as an MCP client
 
@@ -76,7 +84,7 @@ Consequence: wrapper subagents that shell out to a nested harness CLI aren't nee
 
 One string names harness, model and effort: `<harness>/<model>[:<effort>]`.
 
-- `claude/opus`, `claude/opus:max`, `codex/gpt-6-sol:xhigh`, `opencode/openrouter/moonshotai/kimi-k3:high`, `gemini/gemini-2.5-pro`.
+- `claude/opus`, `claude/opus:max`, `codex/gpt-6-sol:xhigh`, `opencode/openrouter/moonshotai/kimi-k3:high`, `gemini/gemini-2.5-pro`, `cursor/gpt-5.4-nano`.
 - First path segment is the harness: a built-in one (§4.1) or a custom harness defined in the config (§8); the rest up to the last `:` is the model as the harness understands it (for opencode that's already `provider/model`).
 - The `:<effort>` suffix is recognized only when it's one of `low | medium | high | xhigh | max`, so model names with their own `:tag` survive.
 
@@ -123,7 +131,7 @@ type ErrorCode =
   | 'harness_unavailable'    // unknown harness, adapter command not found (for a built-in harness the message carries the install command, §4.1), or a config error (message starts with `config error:`); checked before spawn
   | 'depth_exceeded'         // §7
   | 'elicitation_unsupported'// permission_answers 'elicit' configured but the client lacks the capability; before spawn
-  | 'session_not_found'      // send_message / wait / cancel: unknown id, or the harness lacks sessionCapabilities.resume
+  | 'session_not_found'      // send_message / wait / cancel: unknown id, or the harness can't continue the session (§3.3)
   | 'spawn_failed'           // the adapter process could not start, or cwd is not a directory
   | 'handshake_timeout'      // initialize + session setup exceeded limits.handshake_s (§4.2)
   | 'handshake_failed'       // the adapter answered the handshake with an error
@@ -153,7 +161,7 @@ input: {
 output: same as run_thronglet; session_id stays the same
 ```
 
-Harness, model, effort and `cwd` come from the session record (§8): the caller doesn't repeat them. A custom harness that is no longer in the config fails the turn with `harness_unavailable` before spawn, unless its id is also a built-in one: the record names only the id, so the built-in harness then takes the session (its adapter usually rejects the foreign session id with `session_not_found`). Every turn runs in a fresh adapter process that picks the session up via `session/resume` (no history replay); the nested session keeps its own context. Since the adapter process is new, the permission mode, model and effort are applied again after `session/resume`, exactly as after `session/new`. Unknown id, or the harness can't resume → tool error `session_not_found`. The session record keeps whether the adapter advertised `sessionCapabilities.resume` when the session was created (`resumable`, §8); a session recorded as `resumable: false` (Gemini CLI, §2.3) is one turn, and `send_message` to it fails before any guard, lock or adapter process. A record without the field (written by an earlier version) gets the same error from the next turn's handshake when its adapter can't resume.
+Harness, model, effort and `cwd` come from the session record (§8): the caller doesn't repeat them. A custom harness that is no longer in the config fails the turn with `harness_unavailable` before spawn, unless its id is also a built-in one: the record names only the id, so the built-in harness then takes the session (its adapter usually rejects the foreign session id with `session_not_found`). Every turn runs in a fresh adapter process that picks the session up via `session/resume` (no history replay), or via `session/load` for a harness whose definition opts into it (`continueViaLoad`, §4.1: Cursor) when the agent advertises `loadSession` and not resume; the nested session keeps its own context. `session/load` replays the history before it answers; those updates are dropped, so they reach neither `text` nor `warnings`. Since the adapter process is new, the permission mode, model and effort are applied again after `session/resume` or `session/load`, exactly as after `session/new`. Unknown id, or the harness can't continue the session → tool error `session_not_found`. The session record keeps whether the session can be continued, as the handshake that created it showed (`resumable`, §8); a session recorded as `resumable: false` (Gemini CLI, §2.3) is one turn, and `send_message` to it fails before any guard, lock or adapter process. A record without the field (written by an earlier version) gets the same error from the next turn's handshake when its adapter can't continue it.
 
 **Queue.** Turns on one session are serialized by throng: a message that arrives while a turn runs waits for `stop` and starts the next turn, FIFO, one message = one turn with its own `schema` and `timeout_s`. Never two adapter processes on one session. The adapters don't serialize themselves: a concurrent `session/prompt` reaches the model in all three, but the request/response pairing breaks differently in each, and codex-acp never answers the first prompt (spike 2026-10-02, THRONG-9 notes). A synchronous `send_message` on a busy session waits in the queue (progress reports it) and returns when the session is idle again, like `wait_thronglet`. The wait counts toward neither `timeout_s` nor `duration_s`.
 
@@ -165,7 +173,7 @@ Harness, model, effort and `cwd` come from the session record (§8): the caller 
 input: {}
 output: {
   harnesses: Array<{
-    harness: string;         // 'claude' | 'codex' | 'opencode' | 'gemini', or a custom harness id from the config (§4.1)
+    harness: string;         // 'claude' | 'codex' | 'opencode' | 'gemini' | 'cursor', or a custom harness id from the config (§4.1)
     command: string[];       // what will actually be launched
     version?: string;        // adapter's initialize.agentInfo.version: adapters are user-installed, versions drift
     models: string[];
@@ -220,7 +228,7 @@ output: {
     cwd: string;
     state: 'running' | 'queued' | 'idle' | 'failed';
     queued: number;
-    accepts_messages: boolean; // false: the session cannot resume, send_message fails
+    accepts_messages: boolean; // false: the harness can't continue the session (§3.3), send_message fails
     created_at: string;
     last_used_at: string;
     last_error?: { code: ErrorCode; message: string };   // when failed
@@ -230,7 +238,7 @@ output: {
 
 Session records on disk (§8) merged with the live state of this server process, most recently used first. `failed`: the last turn ended with an error; `idle`: it succeeded or no turn has finished yet. A record that can't be read is skipped and logged. Live state is per process: a thronglet started by another server instance (e.g. a nested session's own throng) shows with the state its record carries and `queued: 0`: that server's queue isn't visible here. A record whose turn was running in a server process that is gone (its `turn_pid` is dead, §8) is marked `failed` at startup with `last_error` = `transport_lost`, "turn interrupted: the throng server process that ran it is gone"; it is never shown as `running`.
 
-`accepts_messages` is `false` for a session recorded as `resumable: false` (§8): its harness cannot resume, so `send_message` to it fails with `session_not_found`.
+`accepts_messages` is `false` for a session recorded as `resumable: false` (§8): its harness can continue it neither through `session/resume` nor through `session/load` (§3.3), so `send_message` to it fails with `session_not_found`. A Cursor session is `true`: it continues through `session/load`.
 
 ### 3.8 `cancel_thronglet`
 
@@ -257,12 +265,12 @@ src/
   agent-spec.ts             — parse '<harness>/<model>[:<effort>]'
   harnesses/
     types.ts                — HarnessDefinition
-    claude.ts codex.ts opencode.ts gemini.ts
+    claude.ts codex.ts opencode.ts gemini.ts cursor.ts
     index.ts discovery.ts   — registry snapshot + PATH resolution + discovery
     select.ts               — model/effort selection by option category
   acp/
     process.ts              — spawn in own process group, kill tree, descendant snapshot
-    worker.ts               — Worker: connect/initialize/newSession|resumeSession/setOptions/prompt/cancel/close
+    worker.ts               — Worker: connect/initialize/authenticate/newSession|resumeSession|loadSession/setOptions/prompt/cancel/close
     collector.ts            — fold session/update → text, usage, warnings
   sessions.ts               — session records on disk (§8)
   registry.ts               — live sessions of this process: state, queue, running turn, waiters (§3.3, §3.6)
@@ -288,22 +296,24 @@ Layers: `mcp/` knows about MCP and nothing else calls it; `run.ts` gets progress
 
 throng-mcp ships no adapters and no harnesses (decision-3). The user installs both; throng finds them on PATH:
 
-| | claude | codex | opencode | gemini |
-|---|---|---|---|---|
-| registry id | `claude-acp` | `codex-acp` | `opencode` | `gemini` |
-| adapter on PATH | `claude-agent-acp` | `codex-acp` | `opencode acp` | `gemini --acp` |
-| install hint | `npm i -g @agentclientprotocol/claude-agent-acp` | `npm i -g @agentclientprotocol/codex-acp` | opencode install docs | `npm i -g @google/gemini-cli` |
-| harness on PATH | `claude` → `CLAUDE_CODE_EXECUTABLE` | `codex` → `CODEX_PATH` | same binary | same binary |
-| model | option category `model` | option category `model` | option category `model` | `models` list + `session/set_model` |
-| effort | option `thought_level`; exact | `thought_level`; `max → xhigh` | `thought_level` if present; otherwise warning | none; always a warning |
-| `harness_mode: auto` | mode `auto` | mode `agent` | opencode.json defaults | mode `yolo` |
-| `harness_mode: ask` | mode `default` | mode `read-only` (asks the client) | `OPENCODE_CONFIG_CONTENT={"permission":"ask"}` | mode `default` |
+| | claude | codex | opencode | gemini | cursor |
+|---|---|---|---|---|---|
+| registry id | `claude-acp` | `codex-acp` | `opencode` | `gemini` | `cursor` |
+| adapter on PATH | `claude-agent-acp` | `codex-acp` | `opencode acp` | `gemini --acp` | `cursor-agent acp` |
+| install hint | `npm i -g @agentclientprotocol/claude-agent-acp` | `npm i -g @agentclientprotocol/codex-acp` | opencode install docs | `npm i -g @google/gemini-cli` | `curl https://cursor.com/install -fsS \| bash` |
+| harness on PATH | `claude` → `CLAUDE_CODE_EXECUTABLE` | `codex` → `CODEX_PATH` | same binary | same binary | same binary |
+| auth | — | — | — | — | `authenticate cursor_login` after `initialize` |
+| model | option category `model` | option category `model` | option category `model` | `models` list + `session/set_model` | option category `model`; a name resolves to its bracketed value |
+| effort | option `thought_level`; exact | `thought_level`; `max → xhigh` | `thought_level` if present; otherwise warning | none; always a warning | none; always a warning |
+| `harness_mode: auto` | mode `auto` | mode `agent` | opencode.json defaults | mode `yolo` | launch flag `--force` |
+| `harness_mode: ask` | mode `default` | mode `read-only` (asks the client) | `OPENCODE_CONFIG_CONTENT={"permission":"ask"}` | mode `default` | no flag |
+| continuation (§3.3) | `session/resume` | `session/resume` | `session/resume` | none: one turn | `session/load` |
 
 Gemini runs with `GEMINI_CLI_TRUST_WORKSPACE=true` under both harness modes, not only `auto`: without it the folder is untrusted, `yolo` is refused and the `submit_result` server (§6) never starts. The caller chose `cwd`, and nobody is there to answer a trust dialog.
 
 Availability is decided by the adapter command only. Adapter not on PATH → `unavailable` with `reason` = `<command> not found on PATH; install: <hint>`, and `run_thronglet` fails with `harness_unavailable` and the same text before spawn. The harness binary is optional: when `claude`/`codex` is on PATH, its absolute path goes into `CLAUDE_CODE_EXECUTABLE`/`CODEX_PATH` (unless config sets them), so the adapter runs the user's installed and logged-in harness; otherwise the adapter falls back to its bundled platform package, and if that is missing too, the probe fails at handshake and the adapter's error lands in `reason`. Everything past "the command exists" is checked by the probe (§3.4), not by guessing.
 
-Install hints for npm adapters come from `distribution.npx.package` of the registry snapshot with its version dropped: the user installs the latest adapter, `list_harnesses` shows which one. OpenCode ships as a binary, so its hint is a fixed pointer to its install docs. `npm i -g --omit=optional` skips the platform packages (~500 MB for both adapters, decision-1); it's safe only with the harness on PATH and isn't documented.
+Install hints for npm adapters come from `distribution.npx.package` of the registry snapshot with its version dropped: the user installs the latest adapter, `list_harnesses` shows which one. OpenCode and Cursor ship as binaries, so their hints are fixed: OpenCode's install docs, Cursor's install script. `npm i -g --omit=optional` skips the platform packages (~500 MB for both adapters, decision-1); it's safe only with the harness on PATH and isn't documented.
 
 `data/registry.json` is a verbatim snapshot of the ACP registry. It supplies the install hints of the built-in harnesses; commands come from the table above.
 
@@ -324,29 +334,31 @@ interface HarnessDefinition {                 // src/harnesses/types.ts
     warning?: string;                                                  // the mode has no native setup; goes into the result's warnings
   };
   preTurnNoise?: RegExp[];   // agent messages outside a turn that are routine for the harness: dropped, not warnings (§4.3)
+  authMethodId?: string;     // `authenticate` after `initialize` when the agent lists it in `authMethods` (Cursor: cursor_login)
+  continueViaLoad?: boolean; // continue sessions through `session/load` when the agent has `loadSession` but no resume (§3.3)
 }
 ```
 
 `permissionSetup` covers the ways agents switch approval: a session mode, env of the adapter process, `session/new._meta`, a config option (`allow_all=on`, `brave_mode=true`) and a launch flag. The mode is strict: failing to set it fails the run. `configOptions` are best effort: an option the agent does not advertise, or one it rejects, becomes a warning and the turn runs in whatever asking mode the agent is in, where the server's answers (§5) still apply. `args` and `env` apply to the processes of a run; the `list_harnesses` probe has no harness mode and launches without them.
 
-Model is set strictly: the value must be in `options` of the matching config option, otherwise `model_rejected` with the list. An agent without a `model` config option that lists models in the session's unstable `models` field (Gemini CLI) is checked against that list the same way and set with `session/set_model`; the config option wins when both exist. Effort: `mapEffort` picks the option value; `undefined` → `warnings`, not an error.
+Model is set strictly: the value must be in `options` of the matching config option, otherwise `model_rejected` with the list. A requested model that is not a listed value but is the name before the `[` of exactly one listed value resolves to that value (Cursor: `gpt-5.4-nano` → `gpt-5.4-nano[reasoning=medium]`); a name shared by several values is `model_rejected` too. An agent without a `model` config option that lists models in the session's unstable `models` field (Gemini CLI) is checked against that list the same way and set with `session/set_model`; the config option wins when both exist. `list_harnesses` shows the full values. Effort: `mapEffort` picks the option value; `undefined` → `warnings`, not an error.
 
 **Custom harnesses** (decision-8). Any other ACP agent is described by the user in the config (§8): a `custom_harnesses.<id>` entry defines a harness with that id. Nothing about it is inferred, the ACP registry included: the entry is the whole definition, built as a `HarnessDefinition` from config data. `custom_harnesses` is a section of its own, apart from the built-in overrides in `harnesses`, so a built-in harness added later never changes the meaning of an existing config: a custom id equal to a built-in one wins, the built-in harness is unreachable under that id, and the server logs one line at start saying so.
 
 - Launch: `command` (required: a name looked up on PATH, or a path), `args`, `env`. Command not found → `unavailable` / `harness_unavailable` with `<command> (custom_harnesses.<id>.command) not found on PATH` (or `not found or not executable` for a path), no install hint.
 - `permissionSetup`: harness mode `auto` takes the entry's `auto_mode`, `ask` takes `ask_mode`. Each block has `mode` → `modeId`, `config_options` (`{ <option id>: <value> }`) → `configOptions`, `args`, `env`. An absent block is an empty setup: the agent stays in the mode it starts in. For `auto` that also sets `warning` ("custom_harnesses.<id>.auto_mode is not set: <id> runs in the mode it starts in"): the agent may ask about everything, and `permission_answers` (§5) decide each request.
 - `mapEffort`: the level itself when the `thought_level` option offers exactly that value, otherwise `undefined` (warning). Model as for built-in harnesses.
-- No `newSessionMeta`, no `preTurnNoise`: an agent that needs them, or anything else not expressible as data, gets a built-in definition.
+- No `newSessionMeta`, no `preTurnNoise`, no `authMethodId`, no `continueViaLoad`: an agent that needs them, or anything else not expressible as data, gets a built-in definition.
 
 ### 4.2 Worker (acp/worker.ts)
 
-One turn = one adapter process on one ACP session; the next turn of the same session is a new process with `session/resume`. No pool and no keep-alive between turns (YAGNI; adapter start is seconds, the harness keeps the context).
+One turn = one adapter process on one ACP session; the next turn of the same session is a new process with `session/resume`, or `session/load` (§3.3). No pool and no keep-alive between turns (YAGNI; adapter start is seconds, the harness keeps the context).
 
 Sequence:
 1. `spawn` (detached, own group, `stdio: [pipe, pipe, pipe]`, stderr → 64 KB ring buffer for error messages). `THRONG_MCP_DEPTH = depth + 1` in the child env.
-2. `connectWith(ndJsonStream)`, `initialize` (`clientCapabilities: { fs: {readTextFile:false, writeTextFile:false}, terminal:false }`).
-3. `session/new { cwd, mcpServers }` (+ `_meta` from the harness), or `session/resume { sessionId, cwd, mcpServers }` for every later turn (requires `sessionCapabilities.resume`; unknown id → `session_not_found`). Steps 1–3 run under the handshake timeout (60 s) → `handshake_timeout`.
-4. Mode (`setSessionMode`), the harness mode's config options (§4.1), model, effort via `setSessionConfigOption` (model via `session/set_model` for an agent that only has the `models` list). Runs after `session/resume` as well: a fresh adapter process starts in its defaults.
+2. `connectWith(ndJsonStream)`, `initialize` (`clientCapabilities: { fs: {readTextFile:false, writeTextFile:false}, terminal:false }`). Then `authenticate { methodId }` when the harness definition names an `authMethodId` and the agent lists it in `authMethods` (Cursor); an error there → `handshake_failed` with the agent's message.
+3. `session/new { cwd, mcpServers }` (+ `_meta` from the harness), or for every later turn `session/resume { sessionId, cwd, mcpServers }` when the agent advertises `sessionCapabilities.resume`, else `session/load` with the same params when the definition sets `continueViaLoad` and the agent advertises `loadSession`; the updates that arrive while `session/load` is pending (the replayed history) are dropped. Neither, or an error from either → `session_not_found`. Steps 1–3 run under the handshake timeout (60 s) → `handshake_timeout`.
+4. Mode (`setSessionMode`), the harness mode's config options (§4.1), model, effort via `setSessionConfigOption` (model via `session/set_model` for an agent that only has the `models` list). Runs after `session/resume` and `session/load` as well: a fresh adapter process starts in its defaults.
 5. `prompt` → `nextUpdate()` loop until `stop`. Every event → collector + progress.
 6. Structured-output re-prompts (§6): step 5 again.
 7. `close()`: close stdin, wait 5 s for exit, then `SIGTERM` to the group, 5 s more → `SIGKILL`; finish off the descendant snapshot (`pgrep -P`, recursive, taken before close).
@@ -399,6 +411,8 @@ At one place, `permissions` next to `harness_mode` or `permission_answers` is a 
 
 A `request_permission` for throng's own `submit_result` (§6) is answered `allow_once` under every setting, before the answers apply.
 
+throng answers only the requests a harness sends. What a harness does without asking is not gated: Cursor applies file edits on its own under both harness modes (§2.3), so `ask` + `deny` still lets it edit `cwd`.
+
 Always `*_once`, never `allow_always`: Claude's `allow-with-updates` writes a rule into the project settings.
 
 Elicitation (`elicit`, and `auto` with a capable client):
@@ -412,7 +426,7 @@ Elicitation (`elicit`, and `auto` with a capable client):
 ## 6. Structured output
 
 One mechanism for all harnesses, transport-independent, no network:
-- With `schema` the server writes the schema to a per-run temp dir (`$TMPDIR/throng-*`) and injects a stdio MCP server into `session/new.mcpServers` (or `session/resume.mcpServers`): `{ name:'throng_result', command:<absolute path of the node executable>, args:[<RunContext.submitTool>, '--schema', <path>, '--out', <path>], env:[] }` (`submitTool` is `src/structured/submit-tool.ts` on the sources, `dist/structured/submit-tool.js` in the package, §9; no `type` field: claude-agent-acp quirk; an absolute `command` because ACP wants one and codex gives MCP servers a whitelisted env). The harness spawns it itself; it exposes one tool, `submit_result({ result })`. A `request_permission` for it is answered `allow_once` under every permission setting (§5).
+- With `schema` the server writes the schema to a per-run temp dir (`$TMPDIR/throng-*`) and injects a stdio MCP server into `session/new.mcpServers` (or `session/resume.mcpServers`, `session/load.mcpServers`): `{ name:'throng_result', command:<absolute path of the node executable>, args:[<RunContext.submitTool>, '--schema', <path>, '--out', <path>], env:[] }` (`submitTool` is `src/structured/submit-tool.ts` on the sources, `dist/structured/submit-tool.js` in the package, §9; no `type` field: claude-agent-acp quirk; an absolute `command` because ACP wants one and codex gives MCP servers a whitelisted env). The harness spawns it itself; it exposes one tool, `submit_result({ result })`. A `request_permission` for it is answered `allow_once` under every permission setting (§5).
 - The schema is the tool's `inputSchema`: wrapped as `{ type:'object', properties:{ result:<schema> }, required:['result'] }`, the schema's `$defs` / `definitions` hoisted to the wrapper root so local refs resolve, `$schema` dropped. The SDK doesn't check the arguments; submit-tool validates them itself. The prompt only gets an instruction: finish by calling `submit_result`, whose input schema describes `result`.
 - `submit_result` validates with ajv: the engine follows `$schema` (`Ajv2020` for 2020-12, draft-07 `Ajv` otherwise, also when `$schema` is absent), since the dialects differ in keyword semantics (`items` tuples vs `prefixItems`); `allErrors`, non-strict, formats not checked. Every call writes the `--out` file (last write wins): `{ ok:true, result }` with response "accepted", or `{ ok:false, errors }` with an `isError` response carrying the ajv errors, so the agent fixes it within the same turn. After `stop` the server reads the file: no file means not submitted.
 - After a turn that ends with `end_turn`, `max_tokens` or `max_turn_requests` and no valid result: corrective re-prompt ("you didn't call submit_result" / "your last call was rejected: <errors>"), at most 2. Then tool error `structured_missing` (no file) or `structured_invalid` (last call rejected; message carries the ajv errors) with `text` (the last turn's, or the latest non-empty one) and `session_id` in the payload, so the caller sees what the agent said and can resume. `refusal` / `cancelled` fail as without a schema.
@@ -466,7 +480,7 @@ limits:
 ```
 Config validation with zod; an error goes to stderr at server start and into `list_harnesses.reason`. `harnesses` takes only the built-in ids. `permissions` next to `harness_mode` or `permission_answers` at the same place is a config error (§5). A custom harness entry without `command`, or an id outside letters, digits, `.`, `_`, `-`, is a config error.
 
-Session records: `~/.cache/throng/sessions/<session_id>.json` = `{ harness, model, effort, cwd, description, created_at, last_used_at, resumable?, turn_started_at?, turn_pid?, last_result? | last_error? }`, keyed by the harness's own ACP session id (UUID-like in all three; collisions across harnesses are not a practical concern). Written when the ACP session exists, updated on every turn: `turn_started_at` and `turn_pid` (the server process running the turn) are set while a turn runs and cleared with the turn's `last_result` (the success payload) or `last_error` (the failure payload). Only the turn that holds the session lock writes these fields: a call that fails before taking the lock (guards, a cancel while queued) returns its error to the caller and leaves the record alone. `resumable` is written once, with the record: whether the adapter advertised `sessionCapabilities.resume` in the handshake of the turn that created the session. A record without it (written by an earlier version) is treated as resumable until the handshake says otherwise.
+Session records: `~/.cache/throng/sessions/<session_id>.json` = `{ harness, model, effort, cwd, description, created_at, last_used_at, resumable?, turn_started_at?, turn_pid?, last_result? | last_error? }`, keyed by the harness's own ACP session id (UUID-like in all three; collisions across harnesses are not a practical concern). Written when the ACP session exists, updated on every turn: `turn_started_at` and `turn_pid` (the server process running the turn) are set while a turn runs and cleared with the turn's `last_result` (the success payload) or `last_error` (the failure payload). Only the turn that holds the session lock writes these fields: a call that fails before taking the lock (guards, a cancel while queued) returns its error to the caller and leaves the record alone. `resumable` is written once, with the record: whether a later turn can continue the session, as the handshake of the turn that created it showed: the adapter advertised `sessionCapabilities.resume`, or the harness continues through `session/load` (`continueViaLoad`, §4.1) and the adapter advertised `loadSession`. A record without it (written by an earlier version) is treated as resumable until the handshake says otherwise.
 
 Records are shared by every throng server instance on the machine (each harness spawns its own, §3.5), so `turn_pid` is what tells "running in another process" from "died": at startup a record with `turn_started_at` whose `turn_pid` is not alive (or is this process's own pid, which can't own a turn yet) gets `last_error` = `transport_lost`, "turn interrupted: the throng server process that ran it is gone" (§3.7); a record owned by a live pid is left alone, and `wait_thronglet` on it polls the record once a second. Records survive server restarts. The queue is not persisted: messages queued behind a turn that dies with the server are lost, and `list_thronglets` says so through the failed state.
 
@@ -493,5 +507,4 @@ Tasks, their acceptance criteria and dependencies live in Backlog.md: milestones
 ## 11. Later iterations (not v1)
 
 - File access modes `read-only | read-write | sandbox`: read-only = Claude `plan` mode + `deny_all` on edit kinds, Codex `read-only` sandbox via `CODEX_CONFIG`, OpenCode `permission.edit = deny`. Sandbox is an open question.
-- Cursor: `cursor-agent --model X acp`; the extension methods `cursor/ask_question` and `cursor/create_plan` must be answered.
 - ACP v2: `session/prompt` no longer closes the turn, stop arrives in `state_update`; `tool_call` merges into `tool_call_update`. Isolated in Worker/collector.

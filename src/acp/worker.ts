@@ -52,7 +52,7 @@ const UNADVERTISED_TERMINAL_METHODS = [
 /** Unstable in ACP v1 and absent from the SDK's typed methods; Gemini CLI selects its model this way (DESIGN §2.3). */
 const SET_MODEL_METHOD = 'session/set_model';
 
-type HandshakeStep = 'initialize' | 'session/new' | 'session/resume';
+type HandshakeStep = 'initialize' | 'authenticate' | 'session/new' | 'session/resume' | 'session/load';
 
 /** Workers from spawn until their close() finishes, handshake included. */
 const live = new Set<AcpWorker>();
@@ -77,15 +77,17 @@ export const startWorker: StartWorker = async (spawn, start, hooks, limits) => {
         const message = err instanceof Error ? err.message : String(err);
         throw new ThrongError('spawn_failed', `cannot start adapter ${spawn.command}: ${message}`);
     }
-    await worker.handshake(start);
+    await worker.handshake(start, spawn.authMethodId);
     return worker;
 };
 
 class AcpWorker implements Worker {
     readonly pid: number;
     #session: WorkerSession | undefined;
-    /** Our session's id: from the session/new response, or the id sent in session/resume. */
+    /** Our session's id: from the session/new response, or the id sent in session/resume or session/load. */
     #sessionId: string | undefined;
+    /** While session/load is pending: its replay of the history is not ours to report. */
+    #replaying = false;
     readonly #process: AdapterProcess;
     readonly #connection: ClientConnection;
     readonly #hooks: WorkerHooks;
@@ -127,6 +129,7 @@ class AcpWorker implements Worker {
             .client({ name: 'throng' })
             .onRequest(acp.methods.client.session.requestPermission, ctx => this.#hooks.onPermission(ctx.params))
             .onNotification(acp.methods.client.session.update, ctx => {
+                if (this.#replaying) return;
                 // Before session/new answers, the id is unknown; one process runs one session, so the update is ours.
                 if (this.#sessionId === undefined || ctx.params.sessionId === this.#sessionId)
                     this.#hooks.onUpdate?.(ctx.params);
@@ -175,7 +178,7 @@ class AcpWorker implements Worker {
     }
 
     /** Steps 1–3 of DESIGN §4.2 under one `handshakeMs` timer; any failure kills the tree before rejecting. */
-    async handshake(start: SessionStart): Promise<void> {
+    async handshake(start: SessionStart, authMethodId: string | undefined): Promise<void> {
         let step: HandshakeStep = 'initialize';
         let timer: NodeJS.Timeout | undefined;
         const timeout = new Promise<never>((_, reject) => {
@@ -207,6 +210,11 @@ class AcpWorker implements Worker {
                 );
             }
 
+            if (authMethodId !== undefined && init.authMethods?.some(m => m.id === authMethodId)) {
+                step = 'authenticate';
+                await agent.request(acp.methods.agent.authenticate, { methodId: authMethodId });
+            }
+
             if (start.kind === 'new') {
                 step = 'session/new';
                 const created = await agent.request(acp.methods.agent.session.new, {
@@ -216,13 +224,7 @@ class AcpWorker implements Worker {
                 });
                 this.#sessionId = created.sessionId;
                 this.#session = buildSession(created.sessionId, init, created);
-            } else {
-                if (init.agentCapabilities?.sessionCapabilities?.resume == null) {
-                    throw this.#error(
-                        'session_not_found',
-                        `adapter does not support session/resume; cannot resume ${start.sessionId}`
-                    );
-                }
+            } else if (init.agentCapabilities?.sessionCapabilities?.resume != null) {
                 step = 'session/resume';
                 this.#sessionId = start.sessionId;
                 const resumed = await agent.request(acp.methods.agent.session.resume, {
@@ -231,6 +233,29 @@ class AcpWorker implements Worker {
                     mcpServers: start.mcpServers,
                 });
                 this.#session = buildSession(start.sessionId, init, resumed);
+            } else if (start.allowLoad && init.agentCapabilities?.loadSession) {
+                step = 'session/load';
+                this.#sessionId = start.sessionId;
+                this.#replaying = true;
+                try {
+                    const loaded = await agent.request(acp.methods.agent.session.load, {
+                        sessionId: start.sessionId,
+                        cwd: start.cwd,
+                        mcpServers: start.mcpServers,
+                    });
+                    // Notifications are dispatched a few microtasks after responses: replay chunks that arrived before
+                    // the response must still find the flag set.
+                    await new Promise(resolve => setImmediate(resolve));
+                    this.#session = buildSession(start.sessionId, init, loaded);
+                } finally {
+                    this.#replaying = false;
+                }
+            } else {
+                const how = start.allowLoad ? 'session/resume or session/load' : 'session/resume';
+                throw this.#error(
+                    'session_not_found',
+                    `adapter does not support ${how}; cannot resume ${start.sessionId}`
+                );
             }
         };
 
@@ -263,8 +288,8 @@ class AcpWorker implements Worker {
             return this.#error(step === 'initialize' ? 'spawn_failed' : 'handshake_failed', cause);
         }
         const detail = describeRpcError(err);
-        if (step === 'session/resume' && start.kind === 'resume') {
-            return this.#error('session_not_found', `session/resume ${start.sessionId} failed: ${detail}`);
+        if ((step === 'session/resume' || step === 'session/load') && start.kind === 'resume') {
+            return this.#error('session_not_found', `${step} ${start.sessionId} failed: ${detail}`);
         }
         return this.#error('handshake_failed', `${step} failed: ${detail}`);
     }

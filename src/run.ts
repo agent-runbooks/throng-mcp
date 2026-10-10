@@ -1,4 +1,4 @@
-import type { McpServer, PromptResponse, SessionNotification } from '@agentclientprotocol/sdk';
+import type { AgentCapabilities, McpServer, PromptResponse, SessionNotification } from '@agentclientprotocol/sdk';
 import { statSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -293,6 +293,7 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
                     env: { ...launch.env, ...setup.env },
                     cwd: target.cwd,
                     depth: ctx.depth,
+                    ...(def.authMethodId !== undefined ? { authMethodId: def.authMethodId } : {}),
                 },
                 request.kind === 'new'
                     ? {
@@ -301,7 +302,13 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
                           mcpServers,
                           ...(setup.newSessionMeta ? { meta: setup.newSessionMeta } : {}),
                       }
-                    : { kind: 'resume', sessionId: request.sessionId, cwd: target.cwd, mcpServers },
+                    : {
+                          kind: 'resume',
+                          sessionId: request.sessionId,
+                          cwd: target.cwd,
+                          mcpServers,
+                          ...(def.continueViaLoad ? { allowLoad: true } : {}),
+                      },
                 hooks,
                 {
                     handshakeMs: config.limits.handshake_s * 1000,
@@ -324,7 +331,7 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
                 description: request.description,
                 created_at: createdAt,
                 last_used_at: createdAt,
-                resumable: worker.session.agentCapabilities?.sessionCapabilities?.resume != null,
+                resumable: canContinue(worker.session.agentCapabilities, def.continueViaLoad === true),
                 turn_started_at: createdAt,
                 turn_pid: process.pid,
             }).catch((err: unknown) => {
@@ -503,6 +510,12 @@ async function readSubmitState(path: string, warn: (text: string) => void): Prom
         warn(`structured result unreadable: ${errorText(err)}`);
     }
     return undefined;
+}
+
+/** Whether a later turn can pick the session up: `session/resume`, or `session/load` when the harness opts into it. */
+function canContinue(capabilities: AgentCapabilities | undefined, viaLoad: boolean): boolean {
+    if (capabilities?.sessionCapabilities?.resume != null) return true;
+    return viaLoad && capabilities?.loadSession === true;
 }
 
 function isDirectory(path: string): boolean {

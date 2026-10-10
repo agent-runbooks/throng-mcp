@@ -10,7 +10,7 @@ An MCP server that lets your agent hand work to another one. Any MCP client can 
 - **Background work.** Several agents run at once while you carry on.
 - **Answers by schema.** Pass a JSON Schema and the result comes back as data that fits it, not prose to parse: a list of findings, a verdict, a plan, ready to feed into the next step.
 
-Supported harnesses: Claude Code, Codex, OpenCode (and every model it can reach), Gemini CLI. Setup for each is under [Install](#2-the-agents-to-run).
+Supported harnesses: Claude Code, Codex, OpenCode (and every model it can reach), Gemini CLI, Cursor CLI. Setup for each is under [Install](#2-the-agents-to-run).
 
 Any other ACP agent can be described in the config as a custom harness: its command, and the mode or options that make it auto-approve or ask. throng installs nothing for it and guesses nothing; see [Custom harnesses](docs/configuration.md#custom-harnesses).
 
@@ -121,6 +121,25 @@ Run `gemini` once and sign in; the nested agent uses that login. Checked against
 
 </details>
 
+<details>
+<summary><strong>Cursor CLI</strong></summary>
+
+Cursor CLI speaks ACP itself (`cursor-agent acp`), so there is no adapter.
+
+```bash
+curl https://cursor.com/install -fsS | bash
+agent login
+```
+
+throng finds `cursor-agent` on PATH and authenticates with the login `agent login` saved; without that login every run fails with `handshake_failed` and Cursor's message asking to run `agent login`. Notes:
+
+- Models are Cursor's own values with their parameters in brackets, e.g. `gpt-5.4-nano[reasoning=medium]`; `cursor/gpt-5.4-nano` works when only one value has that name. On a free plan only `cursor/default` (Auto) runs; other models answer "Upgrade your plan to continue".
+- File edits are never asked about, under any permission setting: Cursor applies them itself. `harness_mode: auto` launches it with `--force`, so shell, MCP tools and web search run without asking too; under `ask` those go to `permission_answers`.
+- No effort levels: a `:<effort>` suffix is ignored with a warning.
+- `send_message` works: each turn picks the session up through `session/load`.
+
+</details>
+
 ### 3. The MCP client
 
 The client is the session that calls throng. It may be the same program as one of the agents above, or a different one. The server speaks stdio and the command is `npx -y throng-mcp`, or `throng-mcp` after a global install.
@@ -192,7 +211,7 @@ Agents pick skills up at session start, so open a new session after installing.
 
 ### Check
 
-In a new session, ask the agent to call `list_harnesses`. It starts each installed adapter without a prompt (seconds, no tokens) and lists every available harness with its models and effort levels; `unavailable` names what is missing, and for a built-in harness how to install it. If a run then fails during the handshake, the usual cause is auth: `claude auth status`, `codex login`, `opencode auth login`, `gemini` (sign in once). More in [troubleshooting](docs/configuration.md#troubleshooting).
+In a new session, ask the agent to call `list_harnesses`. It starts each installed adapter without a prompt (seconds, no tokens) and lists every available harness with its models and effort levels; `unavailable` names what is missing, and for a built-in harness how to install it. If a run then fails during the handshake, the usual cause is auth: `claude auth status`, `codex login`, `opencode auth login`, `gemini` (sign in once), `agent login` (Cursor). More in [troubleshooting](docs/configuration.md#troubleshooting).
 
 Before the first run, two things to know. The agent edits the directory you name, with your user's rights; throng adds no isolation and rolls nothing back. Give it only trees you would let an agent edit unattended, and give parallel writers a worktree each.
 
@@ -205,6 +224,7 @@ claude/opus:max
 codex/gpt-6-sol:xhigh
 opencode/openrouter/z-ai/glm-5.3-flash
 gemini/gemini-2.5-pro
+cursor/gpt-5.4-nano
 ```
 
 The model is one of the harness's own values; `list_harnesses` has the current list. Effort is `low | medium | high | xhigh | max`; omitted means the harness default.
@@ -244,7 +264,7 @@ harness_mode: auto        # auto | ask
 permission_answers: deny  # auto | allow | deny | elicit
 ```
 
-- `harness_mode` is the mode the harness runs in: `auto` (the default) is its own auto-approve mode (Claude `auto`, Codex `agent`, OpenCode as configured, Gemini `yolo`), `ask` its asking mode.
+- `harness_mode` is the mode the harness runs in: `auto` (the default) is its own auto-approve mode (Claude `auto`, Codex `agent`, OpenCode as configured, Gemini `yolo`, Cursor `--force`), `ask` its asking mode. throng answers only what a harness asks: Cursor edits files without asking in either mode.
 - `permission_answers` is how throng answers what the harness still asks: `deny` (the default) refuses, `allow` allows once, `elicit` shows you a dialog in the MCP client (needs elicitation support; Claude Code has it), `auto` shows the dialog when the client can and refuses otherwise.
 - `harness_mode: auto` with `permission_answers: allow` is effectively bypass.
 - The older `permissions: auto | allow_all | deny_all | elicit` still works as a shorthand for a pair (auto + deny, ask + allow, ask + deny, ask + elicit).

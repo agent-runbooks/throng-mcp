@@ -9,7 +9,7 @@ A **thronglet** is a nested session of an agent harness that throng starts for y
 
 ## Choosing the agent
 
-`agent` is one string: `<harness>/<model>[:<effort>]`, e.g. `claude/opus:high`, `codex/gpt-6-sol:xhigh`, `opencode/openrouter/z-ai/glm-5.3-flash`, `gemini/gemini-2.5-pro`. The model is a value the harness itself offers: `list_harnesses` returns them with the effort levels (it probes the adapters: seconds, no tokens), and a `model_rejected` message lists them too. Effort is `low | medium | high | xhigh | max`; omitted means the harness default.
+`agent` is one string: `<harness>/<model>[:<effort>]`, e.g. `claude/opus:high`, `codex/gpt-6-sol:xhigh`, `opencode/openrouter/z-ai/glm-5.3-flash`, `gemini/gemini-2.5-pro`, `cursor/gpt-5.4-nano`. The model is a value the harness itself offers: `list_harnesses` returns them with the effort levels (it probes the adapters: seconds, no tokens), and a `model_rejected` message lists them too. A value with bracketed parameters (Cursor's `gpt-5.4-nano[reasoning=medium]`) can be named by the part before the `[` when only one value has it. Effort is `low | medium | high | xhigh | max`; omitted means the harness default.
 
 Pick another harness or model when the task gains from a different model's view (a second review, a design critique) or when the user names one. Same-vendor subagents of your own harness stay the cheaper default for plain parallel work.
 
@@ -57,7 +57,7 @@ What a thronglet may do on disk comes from the throng config (`~/.config/throng/
 |---|---|
 | `harness_unavailable`, `model_rejected` | the message says what is missing or lists the valid values; fix the spec, or tell the user what to install or fix in the config |
 | `depth_exceeded` | nesting is at `limits.max_depth`; do the work yourself |
-| `session_not_found` | the id is wrong, the record expired (14 days) or the harness can't resume it; `list_thronglets` has the live ones, and `accepts_messages: false` marks a session that takes no further message |
+| `session_not_found` | the id is wrong, the record expired (14 days) or the harness can't continue it; `list_thronglets` has the live ones, and `accepts_messages: false` marks a session that takes no further message |
 | `timeout` | the turn outlived `timeout_s` and was cancelled; the session exists: `send_message` "continue", with a larger `timeout_s` if the work needs it |
 | `cancelled` | the turn was cancelled; the message names the source: `cancel_thronglet`, a `steer`, the client, or the agent itself |
 | `transport_lost` | the adapter or the server running the turn died; messages queued behind it are lost; with a `session_id`, `send_message` can resume the session; otherwise start again |

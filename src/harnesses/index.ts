@@ -2,6 +2,7 @@ import { type Config, customHarnessEntry } from '../config.ts';
 import { HARNESS_IDS, type HarnessId, isBuiltinHarness } from '../contract.ts';
 import { claude } from './claude.ts';
 import { codex } from './codex.ts';
+import { cursor } from './cursor.ts';
 import { customHarness } from './custom.ts';
 import { gemini } from './gemini.ts';
 import { opencode } from './opencode.ts';
@@ -10,7 +11,7 @@ import type { HarnessDefinition } from './types.ts';
 export { findOnPath, installHint, loadRegistry } from './discovery.ts';
 
 /** The built-in harnesses (DESIGN §4.1). */
-export const HARNESSES: Record<HarnessId, HarnessDefinition> = { claude, codex, opencode, gemini };
+export const HARNESSES: Record<HarnessId, HarnessDefinition> = { claude, codex, opencode, gemini, cursor };
 
 /** A custom harness from `config.custom_harnesses`, else a built-in one; `undefined` when `id` is neither. */
 export function harnessFor(id: string, config: Config): HarnessDefinition | undefined {

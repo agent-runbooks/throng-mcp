@@ -125,7 +125,7 @@ describe('gemini harness (fake agent)', () => {
         }
     });
 
-    it('a gemini session is recorded as not resumable; send_message is refused before a spawn', async () => {
+    it('a gemini session is recorded as not resumable (loadSession alone does not count); send_message is refused before a spawn', async () => {
         const callLog = join(mkdtempSync(join(h.root, 'calls-')), 'calls.jsonl');
         const { loaded } = h.fakeAs('gemini', 'gemini', '', { FAKE_CALL_LOG: callLog });
         const ctx = h.makeCtx(loaded);
@@ -147,12 +147,14 @@ describe('gemini harness (fake agent)', () => {
         expect(await readSessionRecord(ctx.cacheDir, first.session_id)).toStrictEqual(record);
     });
 
-    it('send_message to a gemini session from an old record (no resumable) → session_not_found at the handshake', async () => {
-        const { loaded, tag } = h.fakeAs('gemini', 'gemini');
+    it('send_message to a gemini session from an old record (no resumable) → session_not_found at the handshake, no session/load', async () => {
+        const callLog = join(mkdtempSync(join(h.root, 'calls-')), 'calls.jsonl');
+        const { loaded, tag } = h.fakeAs('gemini', 'gemini', '', { FAKE_CALL_LOG: callLog });
         const ctx = h.makeCtx(loaded);
         await h.record(ctx.cacheDir, 'gemini-a', { harness: 'gemini', model: 'gemini-2.5-pro' });
         const payload = failed(await sendMessage({ session_id: 'gemini-a', prompt: 'x' }, ctx), 'session_not_found');
-        expect(payload.message).toMatch(/does not support session\/resume/);
+        expect(payload.message).toMatch(/^adapter does not support session\/resume; cannot resume gemini-a/);
+        expect(readFakeCalls(callLog).map(c => c.event)).toStrictEqual(['start']);
         expect(tagAlive(tag)).toBe(false);
     });
 
@@ -166,7 +168,7 @@ describe('gemini harness (fake agent)', () => {
             efforts: [],
             version: '0.0.1',
         });
-        expect(out.unavailable.map(u => u.harness)).toStrictEqual(['claude', 'codex', 'opencode']);
+        expect(out.unavailable.map(u => u.harness)).toStrictEqual(['claude', 'codex', 'opencode', 'cursor']);
         expect(tagAlive(tag), 'probed fake agent still running').toBe(false);
     });
 

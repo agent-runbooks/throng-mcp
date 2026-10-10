@@ -64,7 +64,7 @@ export function register(server: McpServer, env: ToolEnv): void {
                 'one session never overlap. ' +
                 BACKGROUND_NOTE +
                 ' steer: true interrupts the running turn and delivers this message next; queued messages follow it. ' +
-                'A session whose harness cannot resume takes no further message, steer included: list_thronglets shows ' +
+                'A session its harness cannot continue (resume or load) takes no further message, steer included: list_thronglets shows ' +
                 'it as accepts_messages: false.',
             inputSchema,
         },

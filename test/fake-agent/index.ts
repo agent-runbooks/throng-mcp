@@ -32,31 +32,47 @@ export type FakeScenario =
     | 'submit-ask'
     | 'gemini'
     | 'gemini-permission'
-    | 'gemini-write-pong';
+    | 'gemini-write-pong'
+    | 'cursor'
+    | 'cursor-permission'
+    | 'cursor-resume-memory'
+    | 'cursor-steer'
+    | 'cursor-write-pong';
 
 // Knobs besides FAKE_SCENARIO (env of the agent process): FAKE_TURN_MS — an echo or no-resume turn takes that long
 // before answering (default 0); FAKE_MEMORY_DIR — where resume-memory and steer keep their notes; FAKE_SUBMIT — the valid submit_result (JSON);
 // FAKE_CONFIG_OPTIONS — extra `SessionConfigOption[]` (JSON) every session/new and session/resume advertises, select or
 // boolean; FAKE_CALL_LOG — a file the process appends a `FakeCall` JSON line to for its start (argv, the
-// GEMINI_CLI_TRUST_WORKSPACE it sees when set, and every PROBE_* variable it sees), every set_mode, set_config_option
-// (rejected ones included), set_model and prompt, in order; read it with `readFakeCalls`; FAKE_STDERR — a line the
-// process writes to stderr at startup;
-// FAKE_MODELS — gemini-*: raw JSON sent as the session's `models` field.
+// GEMINI_CLI_TRUST_WORKSPACE it sees when set, and every PROBE_* variable it sees), every authenticate, session/load,
+// set_mode, set_config_option (rejected ones included), set_model and prompt, in order; read it with `readFakeCalls`;
+// FAKE_STDERR — a line the process writes to stderr at startup;
+// FAKE_MODELS — gemini-*: raw JSON sent as the session's `models` field; FAKE_AUTH_ERROR — cursor-*: `authenticate`
+// fails with this text (-32000).
 // steer: every turn appends its prompt to the session's notes; the session's first turn then hangs until session/cancel,
 // every later one replies `you said: <notes joined ' | '>`.
 // gemini, gemini-<scenario>: shaped like Gemini CLI 0.61 in ACP mode (DESIGN §2.3), with the turn of echo or
 // <scenario>. No configOptions (FAKE_CONFIG_OPTIONS ignored); models in the session response's `models` field
 // (gemini-2.5-pro current, gemini-2.5-flash), changed by session/set_model, which accepts any string; modes default,
-// autoEdit, yolo, plan; no resume capability; no usage_update and no usage in the prompt response. The echo text ends
-// `[model=<id> effort=?]`.
+// autoEdit, yolo, plan; `loadSession` (session/load as for cursor-*) and no resume capability; no usage_update and no
+// usage in the prompt response. The echo text ends `[model=<id> effort=?]`.
+// cursor, cursor-<scenario>: shaped like Cursor CLI 2026.10.01 in ACP mode (DESIGN §2.3), with the turn of echo or
+// <scenario>. `authMethods` lists cursor_login, and session/new and session/load fail with -32000 ("Authentication
+// required. Please run 'agent login' first, …") until `authenticate`; `loadSession` and no resume capability; modes and
+// a `mode` option agent, plan, ask; a `model` option with bracketed values (`default[]` current, `fake-small[effort=low]`,
+// `fake-big[reasoning=low]`, `fake-big[reasoning=high]`), no thought_level and no extra configOptions
+// (FAKE_CONFIG_OPTIONS ignored). session/load replays the session's notes (resume-memory, steer) as user_message_chunk,
+// agent_thought_chunk and agent_message_chunk `REPLAYED reply to: <note>`, then available_commands_update, and only
+// then answers; resume-memory and steer reject an id without notes.
 
-/** One line of FAKE_CALL_LOG. `resumed`: the session came from session/resume. */
+/** One line of FAKE_CALL_LOG. `resumed`: the session came from session/resume or session/load. */
 export type FakeCall =
     | { event: 'start'; argv: string[]; trustWorkspace?: string; probes?: Record<string, string> }
     | { event: 'set_mode'; modeId: string; resumed: boolean }
     | { event: 'set_config_option'; configId: string; value: string | boolean; resumed: boolean }
     | { event: 'set_model'; modelId: string; resumed: boolean }
-    | { event: 'prompt'; resumed: boolean };
+    | { event: 'prompt'; resumed: boolean }
+    | { event: 'authenticate'; methodId: string }
+    | { event: 'load'; sessionId: string };
 
 /** The FAKE_CALL_LOG lines so far, across every process that wrote to it; [] when the file is absent. */
 export function readFakeCalls(path: string): FakeCall[] {

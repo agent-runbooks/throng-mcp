@@ -56,6 +56,7 @@ export function findCommand(
 /** Agents that ship as a binary. npm adapters (claude-agent-acp, codex-acp) get `npm i -g <package>` from the registry instead. */
 const BINARY_INSTALL_HINTS: Record<string, string> = {
     opencode: 'see https://opencode.ai/docs (binary install)',
+    cursor: 'curl https://cursor.com/install -fsS | bash',
 };
 
 /** Install command for the latest adapter: the snapshot's `npx.package` without its pinned version. */

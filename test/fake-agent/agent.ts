@@ -2,10 +2,12 @@ import * as acp from '@agentclientprotocol/sdk';
 import type {
     AgentContext,
     McpServer,
+    PermissionOption,
     SessionConfigOption,
     SessionModeState,
     SessionUpdate,
     StopReason,
+    ToolCallUpdate,
 } from '@agentclientprotocol/sdk';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -25,9 +27,19 @@ import type { FakeCall } from './index.ts';
 const scenario = process.env.FAKE_SCENARIO ?? 'echo';
 /** gemini-*: shaped like Gemini CLI's ACP mode; the turn itself is that of the scenario after the prefix. */
 const gemini = scenario.startsWith('gemini');
-const turnScenario = gemini ? scenario.replace(/^gemini-?/, '') || 'echo' : scenario;
+/** cursor-*: shaped like Cursor CLI's ACP mode, the same way. */
+const cursor = scenario.startsWith('cursor');
+const turnScenario = gemini || cursor ? scenario.replace(/^(gemini|cursor)-?/, '') || 'echo' : scenario;
 /** Gemini CLI's own model list; set_model accepts any string anyway, like the real one. */
 const GEMINI_MODELS = ['gemini-2.5-pro', 'gemini-2.5-flash'] as const;
+/** cursor-*: model values with their parameters in brackets, `default[]` (Auto) current; two share the name fake-big. */
+const CURSOR_MODELS = ['default[]', 'fake-small[effort=low]', 'fake-big[reasoning=low]', 'fake-big[reasoning=high]'];
+/** Cursor CLI's answer to session/new or session/load before `authenticate`. */
+const CURSOR_AUTH_REQUIRED =
+    "Authentication required. Please run 'agent login' first, then call authenticate() with methodId 'cursor_login'.";
+/** FAKE_AUTH_ERROR: cursor-*: `authenticate` fails with this text (-32000), like a CLI that was never logged in. */
+const authError = process.env.FAKE_AUTH_ERROR;
+let authenticated = false;
 /** FAKE_TURN_MS: an echo or no-resume turn takes this long before answering (a cancel cuts it short); 0 by default. */
 const turnMs = Number(process.env.FAKE_TURN_MS ?? 0);
 /** FAKE_CONFIG_OPTIONS: extra options (JSON `SessionConfigOption[]`) every session advertises after model and effort. */
@@ -136,10 +148,37 @@ function freshSession(resumed: boolean, cwd: string, mcpServers: McpServer[]): F
         session.configOptions = [];
         session.model = GEMINI_MODELS[0];
     }
+    if (cursor) {
+        session.modeId = 'agent';
+        session.configOptions = [
+            {
+                id: 'mode',
+                name: 'Mode',
+                category: 'mode',
+                type: 'select',
+                currentValue: 'agent',
+                options: ['agent', 'plan', 'ask'].map(value => ({ value, name: value })),
+            },
+            {
+                id: 'model',
+                name: 'Model',
+                category: 'model',
+                type: 'select',
+                currentValue: 'default[]',
+                options: CURSOR_MODELS.map(value => ({ value, name: value })),
+            },
+        ];
+    }
     return session;
 }
 
 function modes(session: FakeSession): SessionModeState {
+    if (cursor) {
+        return {
+            currentModeId: session.modeId,
+            availableModes: ['agent', 'plan', 'ask'].map(id => ({ id, name: id })),
+        };
+    }
     if (gemini) {
         return {
             currentModeId: session.modeId,
@@ -355,19 +394,34 @@ async function runTurn(sessionId: string, text: string, client: AgentContext, si
             });
             return;
         case 'permission': {
+            // cursor-permission: Cursor asks before shell commands, with its own option ids.
+            const options: PermissionOption[] = cursor
+                ? [
+                      { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+                      { optionId: 'allow-always', name: 'Allow always', kind: 'allow_always' },
+                      { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
+                  ]
+                : [
+                      { optionId: 'yes', name: 'Allow', kind: 'allow_once' },
+                      { optionId: 'always', name: 'Always', kind: 'allow_always' },
+                      { optionId: 'no', name: 'Reject', kind: 'reject_once' },
+                  ];
+            const toolCall: ToolCallUpdate = cursor
+                ? { toolCallId: 't2', title: 'ls', kind: 'execute', status: 'pending' }
+                : { toolCallId: 't2', title: 'write notes.txt', kind: 'edit', status: 'pending' };
             const answer = await client.request(acp.methods.client.session.requestPermission, {
                 sessionId,
-                toolCall: { toolCallId: 't2', title: 'write notes.txt', kind: 'edit', status: 'pending' },
-                options: [
-                    { optionId: 'yes', name: 'Allow', kind: 'allow_once' },
-                    { optionId: 'always', name: 'Always', kind: 'allow_always' },
-                    { optionId: 'no', name: 'Reject', kind: 'reject_once' },
-                ],
+                toolCall,
+                options,
             });
+            const chosen =
+                answer.outcome.outcome === 'selected'
+                    ? options.find(o => o.optionId === (answer.outcome as { optionId: string }).optionId)
+                    : undefined;
             const outcome =
                 answer.outcome.outcome === 'cancelled'
                     ? 'cancelled'
-                    : answer.outcome.optionId === 'no'
+                    : chosen?.kind.startsWith('reject')
                       ? 'rejected'
                       : 'allowed';
             await say(outcome);
@@ -468,12 +522,47 @@ app =
               protocolVersion: acp.PROTOCOL_VERSION,
               agentInfo: { name: 'fake-agent', version: '0.0.1' },
               agentCapabilities: {
-                  sessionCapabilities: scenario === 'no-resume' || gemini ? {} : { resume: {} },
+                  sessionCapabilities: scenario === 'no-resume' || gemini || cursor ? {} : { resume: {} },
                   promptCapabilities: {},
+                  ...(gemini || cursor ? { loadSession: true } : {}),
               },
+              ...(cursor ? { authMethods: [{ id: 'cursor_login', name: 'Cursor Login' }] } : {}),
           }));
 
+/** cursor-*: session/new and session/load need `authenticate` first. */
+function requireAuth(): void {
+    if (cursor && !authenticated) throw new acp.RequestError(-32000, CURSOR_AUTH_REQUIRED);
+}
+
+/** cursor-*: what session/load replays before it answers: each noted prompt and a reply to it. */
+async function replayHistory(sessionId: string, client: AgentContext): Promise<void> {
+    for (const note of (await readNotes(sessionId)) ?? []) {
+        for (const update of [
+            { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: note } },
+            { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'replayed thought' } },
+            { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `REPLAYED reply to: ${note}` } },
+        ] satisfies SessionUpdate[]) {
+            await client.notify(acp.methods.client.session.update, { sessionId, update });
+        }
+    }
+    await client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: { sessionUpdate: 'available_commands_update', availableCommands: [] },
+    });
+}
+
+app.onRequest('authenticate', ctx => {
+    record({ event: 'authenticate', methodId: ctx.params.methodId });
+    if (authError) throw new acp.RequestError(-32000, authError);
+    if (ctx.params.methodId !== 'cursor_login') {
+        throw acp.RequestError.invalidParams(undefined, `unknown auth method ${ctx.params.methodId}`);
+    }
+    authenticated = true;
+    return {};
+});
+
 app.onRequest('session/new', async ctx => {
+    requireAuth();
     const sessionId = `fake-${randomUUID()}`;
     const session = freshSession(false, ctx.params.cwd, ctx.params.mcpServers);
     sessions.set(sessionId, session);
@@ -488,6 +577,18 @@ app.onRequest('session/new', async ctx => {
         const session = freshSession(true, ctx.params.cwd, ctx.params.mcpServers ?? []);
         sessions.set(ctx.params.sessionId, session);
         await earlyUpdate(ctx.params.sessionId, ctx.client);
+        return { modes: modes(session), configOptions: session.configOptions };
+    })
+    .onRequest('session/load', async ctx => {
+        record({ event: 'load', sessionId: ctx.params.sessionId });
+        requireAuth();
+        const { sessionId } = ctx.params;
+        if (['resume-memory', 'steer'].includes(turnScenario) && !(await readNotes(sessionId))) {
+            throw acp.RequestError.invalidParams(undefined, `unknown session ${sessionId}`);
+        }
+        const session = freshSession(true, ctx.params.cwd, ctx.params.mcpServers);
+        sessions.set(sessionId, session);
+        await replayHistory(sessionId, ctx.client);
         return { modes: modes(session), configOptions: session.configOptions };
     })
     .onRequest('session/set_mode', async ctx => {

@@ -1,11 +1,14 @@
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
     RequestPermissionRequest,
     RequestPermissionResponse,
     SessionNotification,
 } from '@agentclientprotocol/sdk';
 import { afterAll, describe, expect, it } from 'vitest';
-import { type FakeScenario, fakeAgentSpawn } from '../../test/fake-agent/index.ts';
+import { type FakeScenario, fakeAgentSpawn, readFakeCalls } from '../../test/fake-agent/index.ts';
 import { ThrongError } from '../contract.ts';
 import { Collector } from './collector.ts';
 import type { SessionStart, Worker, WorkerHooks, WorkerLimits } from './types.ts';
@@ -87,6 +90,7 @@ async function start(
         onPermission?: WorkerHooks['onPermission'];
         /** Merged over the fake agent's env. */
         env?: Record<string, string>;
+        authMethodId?: string;
     } = {}
 ): Promise<Harness> {
     const spawn = fakeAgentSpawn(scenario);
@@ -101,6 +105,7 @@ async function start(
             env: { ...spawn.env, ...options.env },
             cwd,
             depth: options.depth ?? 0,
+            ...(options.authMethodId !== undefined ? { authMethodId: options.authMethodId } : {}),
         },
         options.start ?? newSession,
         {
@@ -413,6 +418,83 @@ describe('worker', () => {
             'session_not_found'
         );
         expect(tagAlive(spawn.tag)).toBe(false);
+    });
+
+    it('authenticate after initialize when the agent lists the method; skipped when it does not', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'throng-worker-auth-'));
+        const cursorLog = join(dir, 'cursor.jsonl');
+        await withWorker('cursor', ({ worker }) => expect(worker.session.sessionId).toMatch(/^fake-/), {
+            authMethodId: 'cursor_login',
+            env: { FAKE_CALL_LOG: cursorLog },
+        });
+        expect(readFakeCalls(cursorLog).map(c => c.event)).toStrictEqual(['start', 'authenticate']);
+
+        const echoLog = join(dir, 'echo.jsonl');
+        await withWorker('echo', () => undefined, { authMethodId: 'cursor_login', env: { FAKE_CALL_LOG: echoLog } });
+        expect(readFakeCalls(echoLog).map(c => c.event)).toStrictEqual(['start']);
+    });
+
+    it('session/new without authenticate → handshake_failed with the agent message', async () => {
+        const spawn = fakeAgentSpawn('cursor');
+        tags.push(spawn.tag);
+        const err = await rejectsWith(
+            startWorker(
+                { ...spawn, cwd, depth: 0 },
+                newSession,
+                { onPermission: () => Promise.resolve({ outcome: { outcome: 'cancelled' } }) },
+                limits
+            ),
+            'handshake_failed'
+        );
+        expect(err.message).toBe(
+            "session/new failed: Authentication required. Please run 'agent login' first, then call authenticate() with methodId 'cursor_login'."
+        );
+        expect(tagAlive(spawn.tag)).toBe(false);
+    });
+
+    it('allowLoad on an agent with loadSession only: session/load, its replayed history kept from onUpdate', async () => {
+        const memory = mkdtempSync(join(tmpdir(), 'throng-worker-load-'));
+        writeFileSync(join(memory, 'abc.json'), JSON.stringify({ notes: ['remember: banana'] }));
+        await withWorker(
+            'cursor-resume-memory',
+            async h => {
+                expect(h.worker.session.sessionId).toBe('abc');
+                expect(h.updates, 'replayed updates reached onUpdate').toStrictEqual([]);
+                expect(await h.turn('what did I say?')).toBe('you said: remember: banana [model=default[] effort=?]');
+                expect(JSON.stringify(h.updates)).not.toMatch(/REPLAYED/);
+            },
+            {
+                authMethodId: 'cursor_login',
+                env: { FAKE_MEMORY_DIR: memory },
+                start: { kind: 'resume', sessionId: 'abc', cwd, mcpServers: [], allowLoad: true },
+            }
+        );
+    });
+
+    it('loadSession without allowLoad → session_not_found; a session/load error → session_not_found with its text', async () => {
+        const failing = async (allowLoad: boolean) => {
+            const spawn = fakeAgentSpawn('cursor-resume-memory');
+            tags.push(spawn.tag);
+            const err = await rejectsWith(
+                startWorker(
+                    {
+                        ...spawn,
+                        env: { ...spawn.env, FAKE_MEMORY_DIR: mkdtempSync(join(tmpdir(), 'throng-worker-load-')) },
+                        cwd,
+                        depth: 0,
+                        authMethodId: 'cursor_login',
+                    },
+                    { kind: 'resume', sessionId: 'abc', cwd, mcpServers: [], allowLoad },
+                    { onPermission: () => Promise.resolve({ outcome: { outcome: 'cancelled' } }) },
+                    limits
+                ),
+                'session_not_found'
+            );
+            expect(tagAlive(spawn.tag)).toBe(false);
+            return err.message;
+        };
+        expect(await failing(false)).toBe('adapter does not support session/resume; cannot resume abc');
+        expect(await failing(true)).toMatch(/^session\/load abc failed: .*unknown session abc/);
     });
 
     it('permission requests go to onPermission', async () => {

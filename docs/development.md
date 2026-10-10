@@ -53,6 +53,8 @@ pnpm smoke:opencode        # opencode/openrouter/z-ai/glm-5.3-flash (needs openr
 pnpm smoke:opencode-schema # opencode/openrouter/z-ai/glm-5.3-flash with --schema
 pnpm smoke:gemini          # gemini/auto (follow-up skipped: gemini has no session/resume)
 pnpm smoke:gemini-schema   # gemini/auto with --schema
+pnpm smoke:cursor          # cursor/default (Auto, works on a free plan; the follow-up goes through session/load)
+pnpm smoke:cursor-schema   # cursor/default with --schema
 pnpm smoke opencode/<provider>/<model>                  # custom provider
 pnpm smoke:claude -- --prompt "…" --cwd /some/dir --timeout 600
 pnpm smoke:claude -- --no-follow-up                    # skip the send_message step
@@ -70,7 +72,7 @@ The script starts the server, prints the `list_harnesses` table (versions, model
 - `PASS: run_thronglet background accepted` / `PASS: send_message background accepted`: with `--background` only; the call answered `{session_id, state, queued}` (printed as `pending:`), and `wait_thronglet` then delivers the payload the checks above run on.
 - With `--cancel` instead of the pong.txt and follow-up checks: `PASS: run_thronglet background accepted`, `PASS: list_thronglets shows the turn running` (the row has description `smoke: ping/pong`), `PASS: cancel_thronglet cancelled the turn` (`cancelled_turn: true`), `PASS: wait_thronglet returned cancelled`, `PASS: list_thronglets shows the turn failed with cancelled`.
 - With `--steer` instead of the pong.txt and follow-up checks: `PASS: run_thronglet background accepted` (the prompt asks for `sleep 60` as one tool call, so there is a turn to interrupt), `PASS: send_message steer answered STEERED` (a synchronous `send_message` with `steer: true` asks for a line starting with STEERED and what the agent was doing; the payload is printed), `PASS: list_thronglets shows the session idle`.
-- `PASS: no orphans` / `FAIL: orphaned adapter processes: <pids>`: no new `claude-agent-acp`, `codex-acp`, `opencode acp`, `gemini.*--acp` (regex) or `submit-tool` process is alive 3 s after the client closed. `FAIL: cannot check orphans (…)` when `pgrep` is missing or fails.
+- `PASS: no orphans` / `FAIL: orphaned adapter processes: <pids>`: no new `claude-agent-acp`, `codex-acp`, `opencode acp`, `gemini.*--acp` (regex), `cursor-agent` or `submit-tool` process is alive 3 s after the client closed. `FAIL: cannot check orphans (…)` when `pgrep` is missing or fails.
 
 Exit code: 0 all passed; 1 a FAIL or a tool error; 2 bad usage, harness unavailable or unknown model (the valid models are printed). Server stderr is prefixed `[server]`, progress `[progress]`. The temp dir is removed on success and kept (path printed) on failure.
 
@@ -91,9 +93,34 @@ pnpm smoke gemini/auto:high
 
 Runs 1 and 2 replace your own config for that run, so a `permissions` line of yours can't change the mode; if it sets anything else you need (e.g. `harnesses.gemini.command`), copy it into the file.
 
+The Cursor CLI runs (after `curl https://cursor.com/install -fsS | bash` and `agent login`; `list_harnesses` must show cursor with its models, not a `handshake_failed` asking for `agent login`), with the config files above:
+
+```bash
+# 1. auto (cursor-agent acp --force): PASS: pong.txt written, PASS: send_message answered pong.txt (session/load)
+THRONG_MCP_CONFIG=/tmp/throng-auto.yaml pnpm smoke:cursor
+
+# 2. ask + deny, a file edit: Cursor never asks about edits, so PASS: pong.txt written is the expected outcome here
+THRONG_MCP_CONFIG=/tmp/throng-deny.yaml pnpm smoke:cursor
+
+# 3. ask + deny, a shell command: Cursor asks, throng answers reject-once; the run succeeds,
+#    FAIL: pong.txt not found, exit 1 — the expected outcome; the server log has `permission … choice=reject-once`
+THRONG_MCP_CONFIG=/tmp/throng-deny.yaml pnpm smoke:cursor -- --no-follow-up \
+  --prompt "Run exactly this shell command and nothing else: echo pong > pong.txt. Do not edit files any other way. Then reply done."
+
+# 4. steer through session/load: PASS: send_message steer answered STEERED
+THRONG_MCP_CONFIG=/tmp/throng-auto.yaml pnpm smoke:cursor -- --steer
+
+# 5. effort: the run uses Auto, warnings has `effort "high" ignored: cursor exposes no effort option`
+pnpm smoke cursor/default:high
+
+# 6. a model by its name before the bracket: no model_rejected, the run uses the listed `gpt-5.4-nano[…]` value; on a free
+#    plan the text is "Upgrade your plan to continue" and FAIL: pong.txt not found is expected
+pnpm smoke cursor/gpt-5.4-nano --no-follow-up
+```
+
 Manual items that need an interactive Claude Code session:
 
-1. Esc during a running `run_thronglet`; afterwards `pgrep -f "claude-agent-acp|codex-acp|opencode acp|gemini.*--acp"` prints nothing.
+1. Esc during a running `run_thronglet`; afterwards `pgrep -f "claude-agent-acp|codex-acp|opencode acp|gemini.*--acp|cursor-agent"` prints nothing.
 2. A call over 2 min goes to the background: e.g. prompt `run sleep 150 in the shell, then reply done`; the result arrives as a notification.
 3. OpenCode with a custom provider from `opencode.json`.
 

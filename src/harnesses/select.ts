@@ -49,23 +49,30 @@ export function modelRejectedMessage(model: string, values: string[]): string {
 }
 
 /**
+ * The offered value `model` names: the exact value, else the only one whose name before its `[` parameters is `model`
+ * (Cursor: `gpt-5.4-nano` → `gpt-5.4-nano[reasoning=medium]`). None or several → `model_rejected`.
+ */
+export function resolveModel(model: string, values: string[]): string {
+    if (values.includes(model)) return model;
+    const named = values.filter(v => v.includes('[') && v.slice(0, v.indexOf('[')) === model);
+    if (named.length === 1 && named[0] !== undefined) return named[0];
+    throw new ThrongError('model_rejected', modelRejectedMessage(model, values));
+}
+
+/**
  * Sets the model strictly: through the `model` option, else through `session/set_model` when the session lists
- * `models`. A value the harness doesn't offer is `model_rejected`.
+ * `models`. The value is resolved by `resolveModel`.
  */
 export async function selectModel(worker: Worker, model: string): Promise<void> {
     const option = optionByCategory(currentOptions(worker), 'model');
     if (option) {
-        if (!option.values.includes(model))
-            throw new ThrongError('model_rejected', modelRejectedMessage(model, option.values));
-        await setOption(worker, option.id, model);
+        await setOption(worker, option.id, resolveModel(model, option.values));
         return;
     }
     const { models } = worker.session;
     if (!models)
         throw new ThrongError('model_rejected', `cannot select model "${model}": harness exposes no model option`);
-    if (!models.available.includes(model))
-        throw new ThrongError('model_rejected', modelRejectedMessage(model, models.available));
-    await worker.setModel(model);
+    await worker.setModel(resolveModel(model, models.available));
 }
 
 /**

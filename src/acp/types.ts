@@ -23,15 +23,21 @@ export interface WorkerSpawn {
     cwd: string;
     /** This server's depth; the child gets `THRONG_MCP_DEPTH = depth + 1` (DESIGN §7). */
     depth: number;
+    /** Sent as `authenticate` after `initialize` when the agent lists it in `authMethods`; skipped otherwise. */
+    authMethodId?: string;
 }
 
-/** `session/new` for a fresh run, `session/resume` for send_message (requires `sessionCapabilities.resume`). */
+/**
+ * `session/new` for a fresh run. For send_message: `session/resume` when the agent advertises it; else `session/load`
+ * when `allowLoad` and `agentCapabilities.loadSession`; else `session_not_found`. Updates that arrive while
+ * `session/load` is pending (the replayed history) are not passed to `onUpdate`.
+ */
 export type SessionStart =
     | { kind: 'new'; cwd: string; mcpServers: McpServer[]; meta?: Record<string, unknown> }
-    | { kind: 'resume'; sessionId: string; cwd: string; mcpServers: McpServer[] };
+    | { kind: 'resume'; sessionId: string; cwd: string; mcpServers: McpServer[]; allowLoad?: boolean };
 
 export interface WorkerHooks {
-    /** Every `session/update` of this session, in order; feeds the collector and progress. */
+    /** Every `session/update` of this session, in order, except the history `session/load` replays; feeds the collector and progress. */
     onUpdate?: (notification: SessionNotification) => void;
     /** Answer to `session/request_permission`; the Worker never decides itself. */
     onPermission: (request: RequestPermissionRequest) => Promise<RequestPermissionResponse>;
@@ -40,7 +46,7 @@ export interface WorkerHooks {
 }
 
 export interface WorkerLimits {
-    /** Covers spawn + initialize + session/new|resume (DESIGN §4.2 steps 1–3). */
+    /** Covers spawn + initialize + authenticate + session/new|resume|load (DESIGN §4.2 steps 1–3). */
     handshakeMs: number;
     /** Grace after closing stdin before SIGTERM, and after SIGTERM before SIGKILL (step 7); 5000 in production. */
     exitGraceMs?: number;
