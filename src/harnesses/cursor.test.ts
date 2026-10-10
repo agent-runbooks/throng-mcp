@@ -14,7 +14,7 @@ import { SessionRegistry } from '../registry.ts';
 import type { RunOutcome } from '../run.ts';
 import { readSessionRecord } from '../sessions.ts';
 
-// The cursor harness end to end on the fake agent's cursor scenarios (DESIGN §2.3, §3.3, §4.1, §5).
+// The cursor harness end to end on the fake agent's cursor scenarios (docs/harnesses.md; DESIGN §3.3, §4.1, §5).
 
 const h = fakeHarness('throng-cursor-');
 afterAll(() => h.cleanup());

@@ -2,7 +2,7 @@ import { resolveAdapter } from './discovery.ts';
 import type { AdapterSpec } from './discovery.ts';
 import type { HarnessDefinition } from './types.ts';
 
-// Cursor CLI speaks ACP itself (`cursor-agent acp`), so the adapter and the harness are one binary (DESIGN §2.3).
+// Cursor CLI speaks ACP itself (`cursor-agent acp`), so the adapter and the harness are one binary (docs/harnesses.md).
 const spec: AdapterSpec = {
     id: 'cursor',
     registryId: 'cursor',

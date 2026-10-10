@@ -12,7 +12,7 @@ import { sendMessage } from '../mcp/tools/send-message.ts';
 import type { RunOutcome } from '../run.ts';
 import { readSessionRecord } from '../sessions.ts';
 
-// The gemini harness end to end on the fake agent's gemini scenarios (DESIGN §2.3, §4.1, §5).
+// The gemini harness end to end on the fake agent's gemini scenarios (docs/harnesses.md; DESIGN §4.1, §5).
 
 const h = fakeHarness('throng-gemini-');
 afterAll(() => h.cleanup());

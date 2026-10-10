@@ -50,12 +50,12 @@ export type FakeScenario =
 // fails with this text (-32000).
 // steer: every turn appends its prompt to the session's notes; the session's first turn then hangs until session/cancel,
 // every later one replies `you said: <notes joined ' | '>`.
-// gemini, gemini-<scenario>: shaped like Gemini CLI 0.61 in ACP mode (DESIGN §2.3), with the turn of echo or
+// gemini, gemini-<scenario>: shaped like Gemini CLI 0.61 in ACP mode (docs/harnesses.md), with the turn of echo or
 // <scenario>. No configOptions (FAKE_CONFIG_OPTIONS ignored); models in the session response's `models` field
 // (gemini-2.5-pro current, gemini-2.5-flash), changed by session/set_model, which accepts any string; modes default,
 // autoEdit, yolo, plan; `loadSession` (session/load as for cursor-*) and no resume capability; no usage_update and no
 // usage in the prompt response. The echo text ends `[model=<id> effort=?]`.
-// cursor, cursor-<scenario>: shaped like Cursor CLI 2026.10.01 in ACP mode (DESIGN §2.3), with the turn of echo or
+// cursor, cursor-<scenario>: shaped like Cursor CLI 2026.10.01 in ACP mode (docs/harnesses.md), with the turn of echo or
 // <scenario>. `authMethods` lists cursor_login, and session/new and session/load fail with -32000 ("Authentication
 // required. Please run 'agent login' first, …") until `authenticate`; `loadSession` and no resume capability; modes and
 // a `mode` option agent, plan, ask; a `model` option with bracketed values (`default[]` current, `fake-small[effort=low]`,

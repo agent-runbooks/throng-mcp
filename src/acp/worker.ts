@@ -49,7 +49,7 @@ const UNADVERTISED_TERMINAL_METHODS = [
     acp.methods.client.terminal.kill,
 ] as const;
 
-/** Unstable in ACP v1 and absent from the SDK's typed methods; Gemini CLI selects its model this way (DESIGN §2.3). */
+/** Unstable in ACP v1 and absent from the SDK's typed methods; Gemini CLI selects its model this way (docs/harnesses.md). */
 const SET_MODEL_METHOD = 'session/set_model';
 
 type HandshakeStep = 'initialize' | 'authenticate' | 'session/new' | 'session/resume' | 'session/load';

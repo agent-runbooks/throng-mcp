@@ -6,7 +6,7 @@ import type { ConfigOptionValue, HarnessDefinition } from './types.ts';
 
 // Model/effort selection after the handshake (DESIGN §4.1). Options are found by `category`, never by id;
 // the harness mode's config options are the exception, set by the id the harness definition names.
-// An agent without a `model` option may list its models in `session.models` instead (Gemini CLI, DESIGN §2.3).
+// An agent without a `model` option may list its models in `session.models` instead (Gemini CLI, docs/harnesses.md).
 
 /** Above this many models the rejection lists only the requested provider's ones. */
 const FULL_LIST_MAX = 40;

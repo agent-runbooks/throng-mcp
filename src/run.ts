@@ -256,7 +256,7 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
             const schemaPath = join(structuredDir, 'schema.json');
             outPath = join(structuredDir, 'result.json');
             await writeFile(schemaPath, JSON.stringify(call.schema));
-            // No `type`: ACP stdio servers have none, and claude-agent-acp treats only such entries as stdio (DESIGN §2.3).
+            // No `type`: ACP stdio servers have none, and claude-agent-acp treats only such entries as stdio (docs/harnesses.md).
             // The absolute node path: ACP wants one, and codex gives MCP servers a whitelisted env without our PATH.
             mcpServers.push({
                 name: 'throng_result',

@@ -112,12 +112,7 @@ npm i -g @google/gemini-cli
 gemini
 ```
 
-Run `gemini` once and sign in; the nested agent uses that login. Checked against Gemini CLI 0.61.0 only up to the first model request (handshake, models, modes); a full turn has not been run yet, so expect rough edges and please report them. Limits:
-
-- One turn per session: Gemini CLI can't resume a session, so `send_message` to it fails with `session_not_found` before anything runs. `steer: true` is refused the same way and leaves the running turn alone; to stop a gemini turn, use `cancel_thronglet` and start a new run. `list_thronglets` shows such a session with `accepts_messages: false`.
-- No effort levels: a `:<effort>` suffix is ignored with a warning.
-- No usage numbers: the result's `usage` stays empty.
-- The `cwd` you give it is trusted for the run (`GEMINI_CLI_TRUST_WORKSPACE=true`), under every permission setting.
+Run `gemini` once and sign in; the nested agent uses that login. Its limits under throng: [docs/harnesses.md](docs/harnesses.md#gemini-cli).
 
 </details>
 
@@ -131,12 +126,7 @@ curl https://cursor.com/install -fsS | bash
 agent login
 ```
 
-throng finds `cursor-agent` on PATH and authenticates with the login `agent login` saved; without that login every run fails with `handshake_failed` and Cursor's message asking to run `agent login`. Notes:
-
-- Models are Cursor's own values with their parameters in brackets, e.g. `gpt-5.4-nano[reasoning=medium]`; `cursor/gpt-5.4-nano` works when only one value has that name. On a free plan only `cursor/default` (Auto) runs; other models answer "Upgrade your plan to continue".
-- File edits are never asked about, under any permission setting: Cursor applies them itself. `harness_mode: auto` launches it with `--force`, so shell, MCP tools and web search run without asking too; under `ask` those go to `permission_answers`.
-- No effort levels: a `:<effort>` suffix is ignored with a warning.
-- `send_message` works: each turn picks the session up through `session/load`.
+throng finds `cursor-agent` on PATH and authenticates with the login `agent login` saved; without that login every run fails with `handshake_failed` and Cursor's message asking to run `agent login`. Its limits under throng: [docs/harnesses.md](docs/harnesses.md#cursor-cli).
 
 </details>
 
@@ -274,6 +264,7 @@ throng never answers "always allow", so no rule gets written into the agent's pr
 ## Documentation
 
 - [docs/configuration.md](docs/configuration.md): the config file, environment variables, permissions in detail, auth, troubleshooting.
+- [docs/harnesses.md](docs/harnesses.md): how each harness behaves under throng, its limits and quirks.
 - [DESIGN §3](docs/DESIGN.md#3-external-contract): the exact inputs, results, error codes and stop reasons of every tool.
 - [skills/throng/SKILL.md](skills/throng/SKILL.md): working patterns for the calling agent.
 - [docs/development.md](docs/development.md): for maintainers; tests, smoke runs against real harnesses, files on disk.
