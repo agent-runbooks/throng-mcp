@@ -24,9 +24,10 @@ import {
     createPermissionBridge,
     deciderFor,
     type Elicitation,
+    elicits,
     isThrongResultCall,
     type PermissionBridge,
-    policySource,
+    resolvePermissions,
 } from './permissions.ts';
 import type { Progress } from './progress.ts';
 import { buildCorrectivePrompt, buildPrompt } from './prompt.ts';
@@ -36,7 +37,7 @@ import { endTurn, type SessionRecord, updateSessionRecord, writeSessionRecord } 
 import type { SubmitState } from './structured/validate.ts';
 
 // The pipeline shared by run_thronglet and send_message (DESIGN §3.2, §3.3, §4.2, §7):
-// guards → session queue → semaphore → Worker → permission policy → model/effort → prompt → payload. The adapter's lifetime is in lifecycle.ts.
+// guards → session queue → semaphore → Worker → harness mode → model/effort → prompt → payload. The adapter's lifetime is in lifecycle.ts.
 
 export interface RunContext {
     loaded: LoadedConfig;
@@ -60,7 +61,7 @@ export interface RunContext {
     exitGraceMs?: number;
     /** Right before the first prompt goes out, once the session record says the turn runs (background acceptance, §3.6). */
     onTurnStarted?: (sessionId: string) => void;
-    /** The MCP client's elicitation; undefined when the client lacks the capability (policy `elicit` then fails). */
+    /** The MCP client's elicitation; undefined when the client lacks the capability (permission_answers `elicit` then fails). */
     elicitation?: Elicitation;
 }
 
@@ -122,7 +123,7 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
     let lockedId: string | undefined;
     /** Takes `cancel` off the session's registry entry; called once the outcome is fixed. */
     let detachTurn: (() => void) | undefined;
-    /** Mode requested by the permission policy; the agent may fall back to another one (claude: auto → acceptEdits). */
+    /** Mode the permission setup requests; the agent may fall back to another one (claude: auto → acceptEdits). */
     let requestedMode: string | undefined;
     /** Temp dir of the structured-output run: schema.json and submit-tool's result.json. */
     let structuredDir: string | undefined;
@@ -169,7 +170,7 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
 
         // Guards, all before spawn.
         const { loaded } = ctx;
-        // A broken config might have meant a stricter policy: never run on the defaults.
+        // A broken config might have meant stricter permissions: never run on the defaults.
         if (loaded.error) throw new ThrongError('harness_unavailable', `config error: ${loaded.error}`);
         const { config } = loaded;
         const def = harnessFor(target.harness, config);
@@ -183,19 +184,23 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
                 `Unknown harness "${target.harness}" in ${where}; valid harnesses: ${harnessIds(config).join(', ')}`
             );
         }
-        const { policy, key } = policySource(config, target.harness);
-        if (policy === 'elicit' && !ctx.elicitation) {
+        const { mode, answers, answersKey } = resolvePermissions(config, target.harness);
+        if (answers === 'elicit' && !ctx.elicitation) {
+            const instead = /(^|\.)permissions$/.test(answersKey)
+                ? 'auto, allow_all or deny_all'
+                : 'auto, allow or deny';
             throw new ThrongError(
                 'elicitation_unsupported',
-                `permissions "elicit" needs an MCP client that supports elicitation, and this one does not; set ${key} in the throng config to auto, allow_all or deny_all`
+                `${answersKey} "elicit" needs an MCP client that supports elicitation, and this one does not; set ${answersKey} in the throng config to ${instead}`
             );
         }
+        const toHuman = elicits(answers, ctx.elicitation);
         const permissions = createPermissionBridge(
-            policy,
             decision => log.info('permission', { tool: call.tool, session: sessionId, ...decision }),
-            deciderFor(policy, {
+            deciderFor(answers, {
                 ...(ctx.elicitation ? { elicitation: ctx.elicitation } : {}),
                 elicitationTimeoutMs: config.limits.elicitation_s * 1000,
+                description: request.kind === 'new' ? request.description : request.record.description,
             })
         );
         bridge = permissions;
@@ -261,13 +266,19 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
             });
         }
 
-        const setup = def.permissionSetup(policy);
+        if (answers === 'auto' && !ctx.elicitation) {
+            log.info('permission_answers auto: the client has no form elicitation, permission requests are rejected', {
+                tool: call.tool,
+                harness: target.harness,
+            });
+        }
+        const setup = def.permissionSetup(mode);
         if (setup.warning) warn(setup.warning);
         const { launch } = resolution;
         const hooks: WorkerHooks = {
             onUpdate,
             onPermission: request => {
-                if (policy === 'elicit' && !isThrongResultCall(request.toolCall)) {
+                if (toHuman && !isThrongResultCall(request.toolCall)) {
                     ctx.progress.tool(`permission: ${request.toolCall.title ?? request.toolCall.toolCallId}`);
                 }
                 return permissions.answer(request);
@@ -324,9 +335,9 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
             });
         }
 
-        // A fresh adapter process starts in its defaults, so a resumed session gets mode, the policy's config options,
-        // model and effort again (§3.3). The mode is the policy's teeth: failing to set it fails the run; the config
-        // options are best effort (§4.1). Model before effort: effort values may depend on it.
+        // A fresh adapter process starts in its defaults, so a resumed session gets mode, the harness mode's config
+        // options, model and effort again (§3.3). The mode is strict: failing to set it fails the run; the config options
+        // are best effort (§4.1). Model before effort: effort values may depend on it.
         if (setup.modeId) {
             requestedMode = setup.modeId;
             await lifecycle.guard(worker.setMode(setup.modeId));

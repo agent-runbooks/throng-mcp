@@ -151,7 +151,7 @@ function modes(session: FakeSession): SessionModeState {
         availableModes: [
             { id: 'ask', name: 'Ask' },
             { id: 'auto', name: 'Auto' },
-            // claude's asking mode, set under every policy but auto.
+            // claude's asking mode, set under harness_mode ask.
             { id: 'default', name: 'Default' },
         ],
     };
