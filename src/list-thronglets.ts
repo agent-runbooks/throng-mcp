@@ -1,4 +1,5 @@
-import { HARNESS_IDS, type ListThrongletsOutput, type ThrongletInfo } from './contract.ts';
+import { formatAgentSpec } from './agent-spec.ts';
+import type { ListThrongletsOutput, ThrongletInfo } from './contract.ts';
 import { log } from './log.ts';
 import type { SessionRegistry } from './registry.ts';
 import { resolveState } from './session-state.ts';
@@ -31,7 +32,7 @@ async function row(cacheDir: string, id: string, sessions: SessionRegistry): Pro
         const info: ThrongletInfo = {
             session_id: id,
             description: record.description,
-            agent: `${record.harness}/${record.model}${record.effort ? `:${record.effort}` : ''}`,
+            agent: formatAgentSpec(record),
             cwd: record.cwd,
             state: resolved.state,
             queued: resolved.queued,
@@ -56,7 +57,8 @@ function usable(record: SessionRecord): boolean {
     return (
         typeof r === 'object' &&
         r !== null &&
-        (HARNESS_IDS as readonly unknown[]).includes(r.harness) &&
+        typeof r.harness === 'string' &&
+        r.harness !== '' &&
         typeof r.model === 'string' &&
         typeof r.cwd === 'string' &&
         typeof r.created_at === 'string' &&

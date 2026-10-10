@@ -7,13 +7,38 @@ import { HARNESS_IDS } from './contract.ts';
 
 // Server config (DESIGN §8). Unknown keys are rejected so a typo surfaces as a config error instead of being ignored.
 
+// A section left with no value (`limits:` with every child commented out) parses as null; it counts as absent.
+const section = <T extends z.ZodType>(schema: T) => z.preprocess(v => v ?? undefined, schema);
+
 const permissionPolicy = z.enum(['auto', 'allow_all', 'deny_all', 'elicit']);
 
+/** `harnesses.<id>`: an override of a built-in harness's launch and policy. */
 const harnessOverride = z.strictObject({
     command: z.string().min(1).optional(),
     args: z.array(z.string()).optional(),
     env: z.record(z.string(), z.string()).optional(),
     permissions: permissionPolicy.optional(),
+});
+
+/**
+ * A custom harness's setup for one policy group (DESIGN §4.1): `auto_approve` under `auto`, `ask_approval` under the
+ * rest.
+ */
+const approval = z.strictObject({
+    mode: z.string().min(1).optional(),
+    config_options: z.record(z.string(), z.union([z.string(), z.boolean()])).optional(),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+});
+
+/** `custom_harnesses.<id>`: the whole definition of a custom harness. */
+const customHarness = z.strictObject({
+    command: z.string().min(1),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    permissions: permissionPolicy.optional(),
+    auto_approve: section(approval.optional()),
+    ask_approval: section(approval.optional()),
 });
 
 const limits = z.strictObject({
@@ -23,9 +48,6 @@ const limits = z.strictObject({
     max_concurrency: z.number().int().positive().default(10),
     max_depth: z.number().int().nonnegative().default(2),
 });
-
-// A section left with no value (`limits:` with every child commented out) parses as null; it counts as absent.
-const section = <T extends z.ZodType>(schema: T) => z.preprocess(v => v ?? undefined, schema);
 
 const configSchema = z.strictObject({
     permissions: section(permissionPolicy.default('auto')),
@@ -37,14 +59,36 @@ const configSchema = z.strictObject({
             )
             .default({})
     ),
+    custom_harnesses: section(
+        z
+            .record(
+                z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
+                // A null entry becomes {} so the error names the missing `command`.
+                z.preprocess(v => v ?? {}, customHarness),
+                {
+                    error: issue =>
+                        issue.code === 'invalid_key'
+                            ? 'a custom harness id is letters, digits, ".", "_" and "-", starting with a letter or digit'
+                            : undefined,
+                }
+            )
+            .default({})
+    ),
     limits: section(limits.prefault({})),
 });
 
 export type PermissionPolicy = z.infer<typeof permissionPolicy>;
 export type HarnessOverride = z.infer<typeof harnessOverride>;
+export type CustomHarnessEntry = z.infer<typeof customHarness>;
+export type ApprovalSetup = z.infer<typeof approval>;
 export type Config = z.infer<typeof configSchema>;
 
 export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze(configSchema.parse({}));
+
+/** `custom_harnesses.<id>`, own keys only: an id like `constructor` must not reach Object.prototype. */
+export function customHarnessEntry(config: Config, id: string): CustomHarnessEntry | undefined {
+    return Object.hasOwn(config.custom_harnesses, id) ? config.custom_harnesses[id] : undefined;
+}
 
 export interface LoadedConfig {
     config: Config;

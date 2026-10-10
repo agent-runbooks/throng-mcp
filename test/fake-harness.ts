@@ -6,12 +6,12 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect } from 'vitest';
 import { loadConfig, type LoadedConfig } from '../src/config.ts';
+import type { HarnessId } from '../src/contract.ts';
 import { noProgress } from '../src/progress.ts';
 import { SessionRegistry } from '../src/registry.ts';
 import type { RunContext } from '../src/run.ts';
 import { Semaphore } from '../src/semaphore.ts';
 import { type SessionRecord, writeSessionRecord } from '../src/sessions.ts';
-import type { HarnessId } from '../src/contract.ts';
 import type { FakeScenario } from './fake-agent/index.ts';
 
 // A sandbox for runCall tests on the fake agent: temp root, PATH with only `node`, configs whose harness is the fake.
@@ -30,9 +30,16 @@ export interface FakeHarness {
         extra?: string,
         agentEnv?: Record<string, string>
     ): { loaded: LoadedConfig; tag: string };
-    /** `fakeClaude` for any harness id. */
+    /** `fakeClaude` for any built-in harness id. */
     fakeAs(
         harness: HarnessId,
+        scenario: FakeScenario,
+        extra?: string,
+        agentEnv?: Record<string, string>
+    ): { loaded: LoadedConfig; tag: string };
+    /** The fake as `custom_harnesses.<harness>`; `extra` may continue its entry. */
+    fakeCustom(
+        harness: string,
         scenario: FakeScenario,
         extra?: string,
         agentEnv?: Record<string, string>
@@ -54,14 +61,20 @@ export function fakeHarness(prefix: string): FakeHarness {
     mkdirSync(work);
     const tags: string[] = [];
 
-    const fakeAs: FakeHarness['fakeAs'] = (harness, scenario, extra = '', agentEnv = {}) => {
+    const fakeIn = (
+        section: 'harnesses' | 'custom_harnesses',
+        harness: string,
+        scenario: FakeScenario,
+        extra = '',
+        agentEnv: Record<string, string> = {}
+    ) => {
         const tag = `fake-agent-${randomUUID()}`;
         tags.push(tag);
         const path = join(root, `config-${randomUUID()}.yaml`);
         writeFileSync(
             path,
             [
-                'harnesses:',
+                `${section}:`,
                 `  ${harness}:`,
                 `    command: ${JSON.stringify(process.execPath)}`,
                 `    args: [${JSON.stringify(fakeAgent)}, "--tag=${tag}"]`,
@@ -78,8 +91,10 @@ export function fakeHarness(prefix: string): FakeHarness {
     return {
         root,
         work,
-        fakeClaude: (scenario, extra, agentEnv) => fakeAs('claude', scenario, extra, agentEnv),
-        fakeAs,
+        fakeClaude: (scenario, extra, agentEnv) => fakeIn('harnesses', 'claude', scenario, extra, agentEnv),
+        fakeAs: (harness, scenario, extra, agentEnv) => fakeIn('harnesses', harness, scenario, extra, agentEnv),
+        fakeCustom: (harness, scenario, extra, agentEnv) =>
+            fakeIn('custom_harnesses', harness, scenario, extra, agentEnv),
         makeCtx(loaded, overrides = {}) {
             return {
                 loaded,

@@ -1,12 +1,12 @@
-import { EFFORT_LEVELS, type Effort, HARNESS_IDS, type HarnessId, ThrongError } from './contract.ts';
+import { EFFORT_LEVELS, type Effort, ThrongError } from './contract.ts';
 
 export interface AgentSpec {
-    harness: HarnessId;
+    /** A built-in or custom harness id; run.ts checks it against the config. */
+    harness: string;
     model: string;
     effort?: Effort;
 }
 
-const isHarnessId = (value: string): value is HarnessId => (HARNESS_IDS as readonly string[]).includes(value);
 const isEffort = (value: string): value is Effort => (EFFORT_LEVELS as readonly string[]).includes(value);
 
 /**
@@ -16,10 +16,10 @@ const isEffort = (value: string): value is Effort => (EFFORT_LEVELS as readonly 
 export function parseAgentSpec(spec: string): AgentSpec {
     const slash = spec.indexOf('/');
     const harness = slash === -1 ? spec : spec.slice(0, slash);
-    if (!isHarnessId(harness)) {
+    if (harness === '') {
         throw new ThrongError(
             'harness_unavailable',
-            `Unknown harness "${harness}" in agent spec "${spec}"; valid harnesses: ${HARNESS_IDS.join(', ')}`
+            `Unknown harness "" in agent spec "${spec}"; expected <harness>/<model>[:<effort>]`
         );
     }
 
@@ -41,4 +41,9 @@ export function parseAgentSpec(spec: string): AgentSpec {
         );
     }
     return effort === undefined ? { harness, model } : { harness, model, effort };
+}
+
+/** The agent spec as §3.1 spells it. */
+export function formatAgentSpec(spec: AgentSpec): string {
+    return `${spec.harness}/${spec.model}${spec.effort ? `:${spec.effort}` : ''}`;
 }

@@ -18,6 +18,7 @@ describe('loadConfig', () => {
         expect(DEFAULT_CONFIG).toStrictEqual({
             permissions: 'auto',
             harnesses: {},
+            custom_harnesses: {},
             limits: { timeout_s: 21600, handshake_s: 60, elicitation_s: 600, max_concurrency: 10, max_depth: 2 },
         });
     });
@@ -73,6 +74,7 @@ describe('loadConfig', () => {
                 opencode: { command: '/opt/opencode', args: ['acp'], env: { X: '1' } },
                 codex: { permissions: 'allow_all' },
             },
+            custom_harnesses: {},
             limits: { ...DEFAULT_CONFIG.limits, max_depth: 3, timeout_s: 100 },
         });
     });
@@ -105,6 +107,140 @@ describe('loadConfig', () => {
         const loaded = loadConfig({ THRONG_MCP_CONFIG: dir });
         expect(loaded.config).toStrictEqual(DEFAULT_CONFIG);
         expect(loaded.error?.startsWith(`${dir}: cannot read: `), loaded.error).toBe(true);
+    });
+});
+
+describe('loadConfig: custom harnesses', () => {
+    const errorOf = (name: string, content: string) => {
+        const loaded = loadConfig(withFile(name, content));
+        expect(loaded.config).toStrictEqual(DEFAULT_CONFIG);
+        return loaded.error ?? '';
+    };
+
+    it('accepts a custom harness entry with every key, next to built-in overrides', () => {
+        const loaded = loadConfig(
+            withFile(
+                'custom.yaml',
+                [
+                    'harnesses:',
+                    '  claude: { permissions: deny_all }',
+                    'custom_harnesses:',
+                    '  kimi:',
+                    '    command: kimi',
+                    '    args: [acp]',
+                    '    env: { KIMI_X: "1" }',
+                    '    permissions: allow_all',
+                    '    auto_approve:',
+                    '      mode: yolo',
+                    '      config_options: { permission: bypass, brave_mode: true }',
+                    '      args: []',
+                    '      env: {}',
+                    '    ask_approval:',
+                    '      mode: default',
+                    '  qwen.code_2-x: { command: /opt/qwen }',
+                ].join('\n')
+            )
+        );
+        expect(loaded.error).toBe(undefined);
+        expect(loaded.config.harnesses).toStrictEqual({ claude: { permissions: 'deny_all' } });
+        expect(loaded.config.custom_harnesses).toStrictEqual({
+            kimi: {
+                command: 'kimi',
+                args: ['acp'],
+                env: { KIMI_X: '1' },
+                permissions: 'allow_all',
+                auto_approve: {
+                    mode: 'yolo',
+                    config_options: { permission: 'bypass', brave_mode: true },
+                    args: [],
+                    env: {},
+                },
+                ask_approval: { mode: 'default' },
+            },
+            'qwen.code_2-x': { command: '/opt/qwen' },
+        });
+        expect(Object.keys(loaded.config.custom_harnesses.kimi?.auto_approve?.config_options ?? {})).toStrictEqual([
+            'permission',
+            'brave_mode',
+        ]);
+    });
+
+    it('accepts a custom harness with a built-in id', () => {
+        const loaded = loadConfig(
+            withFile('custom-claude.yaml', 'custom_harnesses:\n  claude: { command: my-claude }\n')
+        );
+        expect(loaded.error).toBe(undefined);
+        expect(loaded.config.custom_harnesses).toStrictEqual({ claude: { command: 'my-claude' } });
+        expect(loaded.config.harnesses).toStrictEqual({});
+    });
+
+    it('custom_harnesses with no value counts as absent', () => {
+        const loaded = loadConfig(withFile('custom-null.yaml', 'custom_harnesses:\n  # kimi: { command: kimi }\n'));
+        expect(loaded.error).toBe(undefined);
+        expect(loaded.config).toStrictEqual(DEFAULT_CONFIG);
+    });
+
+    it('rejects a custom harness without command, also one with no value or an empty command', () => {
+        for (const [name, entry] of [
+            ['no-command.yaml', '  kimi: { args: [acp] }'],
+            ['no-value.yaml', '  kimi:'],
+        ] as const) {
+            const error = errorOf(name, `custom_harnesses:\n${entry}\n`);
+            expect(error).toMatch(/invalid config: custom_harnesses\.kimi\.command: Invalid input: expected string/);
+        }
+        expect(errorOf('empty-command.yaml', 'custom_harnesses:\n  kimi: { command: "" }\n')).toContain(
+            'invalid config: custom_harnesses.kimi.command: '
+        );
+    });
+
+    it('rejects an id outside letters, digits, ".", "_", "-"', () => {
+        for (const [i, id] of ['a/b', 'a:b', '-x', '.x', 'a b'].entries()) {
+            const error = errorOf(`bad-id-${i}.yaml`, `custom_harnesses:\n  "${id}": { command: x }\n`);
+            expect(error).toContain(
+                `invalid config: custom_harnesses.${id}: a custom harness id is letters, digits, ".", "_" and "-", starting with a letter or digit`
+            );
+        }
+    });
+
+    it('harnesses takes only the built-in ids', () => {
+        const error = errorOf('harnesses-kimi.yaml', 'harnesses:\n  kimi: { command: kimi }\n');
+        expect(error).toMatch(/invalid config: harnesses: .*"kimi"/);
+    });
+
+    it('rejects auto_approve and ask_approval under harnesses as unknown keys', () => {
+        const error = errorOf(
+            'builtin-approval.yaml',
+            'harnesses:\n  claude: { auto_approve: { mode: x } }\n  codex: { ask_approval: {} }\n'
+        );
+        expect(error).toMatch(/harnesses\.claude: .*"auto_approve"/);
+        expect(error).toMatch(/harnesses\.codex: .*"ask_approval"/);
+    });
+
+    it('rejects an unknown key or a bad value in an approval block', () => {
+        expect(
+            errorOf('approval-key.yaml', 'custom_harnesses:\n  kimi: { command: k, auto_approve: { bogus: 1 } }\n')
+        ).toMatch(/custom_harnesses\.kimi\.auto_approve: .*"bogus"/);
+        expect(
+            errorOf(
+                'approval-value.yaml',
+                'custom_harnesses:\n  kimi: { command: k, ask_approval: { config_options: { a: 1 } } }\n'
+            )
+        ).toContain('custom_harnesses.kimi.ask_approval.config_options.a');
+        expect(
+            errorOf('approval-mode.yaml', 'custom_harnesses:\n  kimi: { command: k, ask_approval: { mode: "" } }\n')
+        ).toContain('custom_harnesses.kimi.ask_approval.mode');
+        expect(errorOf('custom-key.yaml', 'custom_harnesses:\n  kimi: { command: k, bogus: 1 }\n')).toMatch(
+            /custom_harnesses\.kimi: .*"bogus"/
+        );
+    });
+
+    it('an approval block with no value counts as absent', () => {
+        const loaded = loadConfig(
+            withFile('approval-null.yaml', 'custom_harnesses:\n  kimi:\n    command: k\n    auto_approve:\n')
+        );
+        expect(loaded.error).toBe(undefined);
+        expect(loaded.config.custom_harnesses.kimi?.command).toBe('k');
+        expect(loaded.config.custom_harnesses.kimi?.auto_approve).toBe(undefined);
     });
 });
 

@@ -5,8 +5,13 @@
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type Effort = (typeof EFFORT_LEVELS)[number];
 
+/** Built-in harnesses (DESIGN §4.1). A custom harness from the config (§8) may have any id, one of these included. */
 export const HARNESS_IDS = ['claude', 'codex', 'opencode', 'gemini'] as const;
 export type HarnessId = (typeof HARNESS_IDS)[number];
+
+export function isBuiltinHarness(id: string): id is HarnessId {
+    return (HARNESS_IDS as readonly string[]).includes(id);
+}
 
 export type StopReason = 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal';
 
@@ -81,7 +86,8 @@ export interface RunFailure {
 }
 
 export interface HarnessInfo {
-    harness: HarnessId;
+    /** A built-in id or a custom harness id from the config. */
+    harness: string;
     command: string[];
     /** Adapter's `initialize.agentInfo.version`. */
     version?: string;

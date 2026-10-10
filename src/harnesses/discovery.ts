@@ -33,6 +33,26 @@ export function findOnPath(name: string, env: NodeJS.ProcessEnv = process.env): 
     return undefined;
 }
 
+/**
+ * A configured command: a value with a "/" is a path that must be an executable file, anything else is looked up on
+ * PATH. `reason` names the value and `key`, its config key path.
+ */
+export function findCommand(
+    key: string,
+    configured: string,
+    env: NodeJS.ProcessEnv = process.env
+): { ok: true; command: string } | { ok: false; reason: string } {
+    const isPath = configured.includes('/');
+    const command = isPath
+        ? isExecutableFile(configured)
+            ? resolve(configured)
+            : undefined
+        : findOnPath(configured, env);
+    if (command) return { ok: true, command };
+    const where = isPath ? 'not found or not executable' : 'not found on PATH';
+    return { ok: false, reason: `${configured} (${key}) ${where}` };
+}
+
 /** Agents that ship as a binary. npm adapters (claude-agent-acp, codex-acp) get `npm i -g <package>` from the registry instead. */
 const BINARY_INSTALL_HINTS: Record<string, string> = {
     opencode: 'see https://opencode.ai/docs (binary install)',
@@ -72,20 +92,9 @@ export function resolveAdapter(
 
     let command: string | undefined;
     if (override?.command) {
-        const configured = override.command;
-        const isPath = configured.includes('/');
-        command = isPath
-            ? isExecutableFile(configured)
-                ? resolve(configured)
-                : undefined
-            : findOnPath(configured, env);
-        if (!command) {
-            const where = isPath ? 'not found or not executable' : 'not found on PATH';
-            return {
-                available: false,
-                reason: `${configured} (harnesses.${spec.id}.command) ${where}; install: ${hint}`,
-            };
-        }
+        const found = findCommand(`harnesses.${spec.id}.command`, override.command, env);
+        if (!found.ok) return { available: false, reason: `${found.reason}; install: ${hint}` };
+        command = found.command;
     } else {
         command = findOnPath(spec.adapter, env);
         if (!command) return { available: false, reason: `${spec.adapter} not found on PATH; install: ${hint}` };

@@ -1,7 +1,7 @@
 import type { RequestPermissionRequest, RequestPermissionResponse } from '@agentclientprotocol/sdk';
 import type { ElicitRequestFormParams, ElicitResult } from '@modelcontextprotocol/sdk/types.js';
-import type { Config, PermissionPolicy } from './config.ts';
-import type { HarnessId } from './contract.ts';
+import { type Config, customHarnessEntry, type PermissionPolicy } from './config.ts';
+import { isBuiltinHarness } from './contract.ts';
 import { log } from './log.ts';
 
 // Answers to `session/request_permission` (DESIGN §5): auto, allow_all, deny_all, elicit.
@@ -37,9 +37,16 @@ export interface PermissionBridge {
     cancelAll(): void;
 }
 
-/** Per-harness override, else the global default. Never a tool parameter (DESIGN §5). */
-export function resolvePolicy(config: Config, harness: HarnessId): PermissionPolicy {
-    return config.harnesses[harness]?.permissions ?? config.permissions;
+/**
+ * The policy of `harness` and the config key it comes from: the per-harness override, else the global default. Never a
+ * tool parameter (DESIGN §5). A custom harness's entry wins over a built-in override of the same id, even when only the
+ * latter sets `permissions`.
+ */
+export function policySource(config: Config, harness: string): { key: string; policy: PermissionPolicy } {
+    const custom = customHarnessEntry(config, harness);
+    const entry = custom ?? (isBuiltinHarness(harness) ? config.harnesses[harness] : undefined);
+    if (!entry?.permissions) return { key: 'permissions', policy: config.permissions };
+    return { key: `${custom ? 'custom_harnesses' : 'harnesses'}.${harness}.permissions`, policy: entry.permissions };
 }
 
 const CANCELLED: Outcome = { outcome: 'cancelled' };
