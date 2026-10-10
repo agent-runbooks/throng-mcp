@@ -316,6 +316,24 @@ describe('runThronglet', () => {
         expect(payload.session_id).toBe(undefined);
     });
 
+    it('unknown harness: the message names it and lists the native ids; ids are case-sensitive', async () => {
+        const { loaded } = fakeClaude('echo');
+        const nope = failed(await runThronglet(input('nope/pro'), makeCtx(loaded)), 'harness_unavailable');
+        expect(nope.message).toBe(
+            'Unknown harness "nope" in agent spec "nope/pro"; valid harnesses: claude, codex, opencode, gemini'
+        );
+        const upper = failed(await runThronglet(input('Claude/opus-5-5'), makeCtx(loaded)), 'harness_unavailable');
+        expect(upper.message).toContain('"Claude"');
+    });
+
+    it('a config error comes before the unknown-harness check', async () => {
+        const broken = failed(
+            await runThronglet(input('nope/x'), makeCtx(loadYaml('limits: [\n'))),
+            'harness_unavailable'
+        );
+        expect(broken.message.startsWith('config error:'), broken.message).toBe(true);
+    });
+
     it('adapter missing → harness_unavailable with the install hint, before spawn', async () => {
         const payload = failed(await runThronglet(input('claude/opus'), makeCtx(loadYaml(''))), 'harness_unavailable');
         expect(payload.message).toMatch(
@@ -805,7 +823,7 @@ describe('sendMessage', () => {
         mkdirSync(join(ctx.cacheDir, 'sessions'));
         writeFileSync(
             join(ctx.cacheDir, 'sessions', 'fake-bad.json'),
-            JSON.stringify({ harness: 'nope', model: 'x', cwd: work })
+            JSON.stringify({ harness: 42, model: 'x', cwd: work })
         );
         writeFileSync(join(ctx.cacheDir, 'sessions', 'fake-junk.json'), '{');
         expect(

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Collector } from './acp/collector.ts';
 import type { WorkerHooks } from './acp/types.ts';
 import { startWorker } from './acp/worker.ts';
-import type { AgentSpec } from './agent-spec.ts';
+import { type AgentSpec, formatAgentSpec } from './agent-spec.ts';
 import type { LoadedConfig } from './config.ts';
 import {
     type FailureContext,
@@ -16,7 +16,7 @@ import {
     ThrongError,
     toThrongError,
 } from './contract.ts';
-import { harnessById, loadRegistry } from './harnesses/index.ts';
+import { harnessFor, harnessIds, loadRegistry } from './harnesses/index.ts';
 import { applyConfigOption, selectEffort, selectModel } from './harnesses/select.ts';
 import { RunLifecycle } from './lifecycle.ts';
 import { log } from './log.ts';
@@ -172,6 +172,17 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
         // A broken config might have meant a stricter policy: never run on the defaults.
         if (loaded.error) throw new ThrongError('harness_unavailable', `config error: ${loaded.error}`);
         const { config } = loaded;
+        const def = harnessFor(target.harness, config);
+        if (!def) {
+            const where =
+                request.kind === 'new'
+                    ? `agent spec "${formatAgentSpec(request.spec)}"`
+                    : `session ${request.sessionId}`;
+            throw new ThrongError(
+                'harness_unavailable',
+                `Unknown harness "${target.harness}" in ${where}; valid harnesses: ${harnessIds(config).join(', ')}`
+            );
+        }
         const policy = resolvePolicy(config, target.harness);
         if (policy === 'elicit' && !ctx.elicitation) {
             const key = config.harnesses[target.harness]?.permissions
@@ -198,7 +209,6 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
                 `nested run would be at depth ${ctx.depth + 1}, max_depth is ${maxDepth} (this server runs at depth ${ctx.depth})`
             );
         }
-        const def = harnessById(target.harness);
         collector.preTurnNoise = def.preTurnNoise ?? [];
         const resolution = def.resolve(config, loadRegistry(), ctx.env);
         if (!resolution.available) throw new ThrongError('harness_unavailable', resolution.reason);
@@ -255,6 +265,7 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
         }
 
         const setup = def.permissionSetup(policy);
+        if (setup.warning) warn(setup.warning);
         const { launch } = resolution;
         const hooks: WorkerHooks = {
             onUpdate,

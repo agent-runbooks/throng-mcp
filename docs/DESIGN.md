@@ -77,7 +77,7 @@ Consequence: wrapper subagents that shell out to a nested harness CLI aren't nee
 One string names harness, model and effort: `<harness>/<model>[:<effort>]`.
 
 - `claude/opus`, `claude/opus:max`, `codex/gpt-6-sol:xhigh`, `opencode/openrouter/moonshotai/kimi-k3:high`, `gemini/gemini-2.5-pro`.
-- First path segment is the harness; the rest up to the last `:` is the model as the harness understands it (for opencode that's already `provider/model`).
+- First path segment is the harness: a native one (§4.1) or a user harness defined in the config (§8); the rest up to the last `:` is the model as the harness understands it (for opencode that's already `provider/model`).
 - The `:<effort>` suffix is recognized only when it's one of `low | medium | high | xhigh | max`, so model names with their own `:tag` survive.
 
 ### 3.2 `run_thronglet`
@@ -120,7 +120,7 @@ Both are a single JSON text block in `content[0].text`; no `structuredContent`, 
 
 ```ts
 type ErrorCode =
-  | 'harness_unavailable'    // adapter command not found (message carries the install command, §4.1), or a config error (message starts with `config error:`); checked before spawn
+  | 'harness_unavailable'    // unknown harness, adapter command not found (for a native harness the message carries the install command, §4.1), or a config error (message starts with `config error:`); checked before spawn
   | 'depth_exceeded'         // §7
   | 'elicitation_unsupported'// policy 'elicit' configured but the client lacks the capability; before spawn
   | 'session_not_found'      // send_message / wait / cancel: unknown id, or the harness lacks sessionCapabilities.resume
@@ -153,7 +153,7 @@ input: {
 output: same as run_thronglet; session_id stays the same
 ```
 
-Harness, model, effort and `cwd` come from the session record (§8): the caller doesn't repeat them. Every turn runs in a fresh adapter process that picks the session up via `session/resume` (no history replay); the nested session keeps its own context. Since the adapter process is new, the permission mode, model and effort are applied again after `session/resume`, exactly as after `session/new`. Unknown id, or the harness can't resume → tool error `session_not_found`. The session record keeps whether the adapter advertised `sessionCapabilities.resume` when the session was created (`resumable`, §8); a session recorded as `resumable: false` (Gemini CLI, §2.3) is one turn, and `send_message` to it fails before any guard, lock or adapter process. A record without the field (written by an earlier version) gets the same error from the next turn's handshake when its adapter can't resume.
+Harness, model, effort and `cwd` come from the session record (§8): the caller doesn't repeat them. A user harness that is no longer in the config fails the turn with `harness_unavailable` before spawn. Every turn runs in a fresh adapter process that picks the session up via `session/resume` (no history replay); the nested session keeps its own context. Since the adapter process is new, the permission mode, model and effort are applied again after `session/resume`, exactly as after `session/new`. Unknown id, or the harness can't resume → tool error `session_not_found`. The session record keeps whether the adapter advertised `sessionCapabilities.resume` when the session was created (`resumable`, §8); a session recorded as `resumable: false` (Gemini CLI, §2.3) is one turn, and `send_message` to it fails before any guard, lock or adapter process. A record without the field (written by an earlier version) gets the same error from the next turn's handshake when its adapter can't resume.
 
 **Queue.** Turns on one session are serialized by throng: a message that arrives while a turn runs waits for `stop` and starts the next turn, FIFO, one message = one turn with its own `schema` and `timeout_s`. Never two adapter processes on one session. The adapters don't serialize themselves: a concurrent `session/prompt` reaches the model in all three, but the request/response pairing breaks differently in each, and codex-acp never answers the first prompt (spike 2026-10-02, THRONG-9 notes). A synchronous `send_message` on a busy session waits in the queue (progress reports it) and returns when the session is idle again, like `wait_thronglet`. The wait counts toward neither `timeout_s` nor `duration_s`.
 
@@ -165,13 +165,13 @@ Harness, model, effort and `cwd` come from the session record (§8): the caller 
 input: {}
 output: {
   harnesses: Array<{
-    harness: 'claude' | 'codex' | 'opencode' | 'gemini';
+    harness: string;         // 'claude' | 'codex' | 'opencode' | 'gemini', or a user harness id from the config (§4.1)
     command: string[];       // what will actually be launched
     version?: string;        // adapter's initialize.agentInfo.version: adapters are user-installed, versions drift
     models: string[];
     efforts: string[];       // config option category 'thought_level'; empty when the harness has none
   }>;
-  unavailable: Array<{ harness: string; reason: string }>;   // adapter not found + install command, config error, probe failed
+  unavailable: Array<{ harness: string; reason: string }>;   // adapter not found (+ install command for a native harness), config error, probe failed
   limits: { max_concurrency; max_depth; default_timeout_s; current_depth };
 }
 ```
@@ -305,14 +305,14 @@ Availability is decided by the adapter command only. Adapter not on PATH → `un
 
 Install hints for npm adapters come from `distribution.npx.package` of the registry snapshot with its version dropped: the user installs the latest adapter, `list_harnesses` shows which one. OpenCode ships as a binary, so its hint is a fixed pointer to its install docs. `npm i -g --omit=optional` skips the platform packages (~500 MB for both adapters, decision-1); it's safe only with the harness on PATH and isn't documented.
 
-`data/registry.json` is a verbatim snapshot of the ACP registry. In v1 it supplies `args`/`env` of the distribution for the three ids, the install hints and the description shown by `list_harnesses`; commands come from the table above. Later iterations can fetch the live registry and expose "generic" harnesses from it without changing the data shape.
+`data/registry.json` is a verbatim snapshot of the ACP registry. It supplies the install hints of the native harnesses; commands come from the table above.
 
 Config (§8) can override `command`/`args`/`env` per harness, e.g. to point at an adapter outside PATH.
 
 ```ts
 interface HarnessDefinition {                 // src/harnesses/types.ts
-  id: 'claude' | 'codex' | 'opencode' | 'gemini';
-  registryId: string;
+  id: string;                                 // a native id, or a user harness's config key
+  registryId?: string;                        // natives: where the install hint comes from
   resolve(config, registry, env?): { available: true; launch: { command; args; env } } | { available: false; reason: string };
   mapEffort(level: Effort, options: string[]): string | undefined;   // our level → option value; undefined = not applicable → warning
   permissionSetup(policy): {
@@ -321,6 +321,7 @@ interface HarnessDefinition {                 // src/harnesses/types.ts
     newSessionMeta?: object;
     configOptions?: Array<{ id: string; value: string | boolean }>;   // session/set_config_option by id, after the mode
     args?: string[];                                                   // appended to the launch args
+    warning?: string;                                                  // the policy has no native setup; goes into the result's warnings
   };
   preTurnNoise?: RegExp[];   // agent messages outside a turn that are routine for the harness: dropped, not warnings (§4.3)
 }
@@ -329,6 +330,13 @@ interface HarnessDefinition {                 // src/harnesses/types.ts
 `permissionSetup` covers the ways agents switch approval: a session mode, env of the adapter process, `session/new._meta`, a config option (`allow_all=on`, `brave_mode=true`) and a launch flag. The mode is strict: failing to set it fails the run. `configOptions` are best effort: an option the agent does not advertise, or one it rejects, becomes a warning and the turn runs in whatever asking mode the agent is in, where the server's answers (§5) still hold the policy. `args` and `env` apply to the processes of a run; the `list_harnesses` probe has no policy and launches without them.
 
 Model is set strictly: the value must be in `options` of the matching config option, otherwise `model_rejected` with the list. An agent without a `model` config option that lists models in the session's unstable `models` field (Gemini CLI) is checked against that list the same way and set with `session/set_model`; the config option wins when both exist. Effort: `mapEffort` picks the option value; `undefined` → `warnings`, not an error.
+
+**User harnesses** (decision-8). Any other ACP agent is described by the user in the config (§8): a `harnesses.<id>` entry whose id is not native defines a harness with that id. Nothing about it is inferred, the ACP registry included: the entry is the whole definition, built as a `HarnessDefinition` from config data.
+
+- Launch: `command` (required: a name looked up on PATH, or a path), `args`, `env`. Command not found → `unavailable` / `harness_unavailable` with `<command> (harnesses.<id>.command) not found on PATH` (or `not found or not executable` for a path), no install hint.
+- `permissionSetup`: policy `auto` takes the entry's `auto_approve`, the other three take `ask_approval`. Each block has `mode` → `modeId`, `config_options` (`{ <option id>: <value> }`, in the order written) → `configOptions`, `args`, `env`. An absent block is an empty setup: the agent stays in the mode it starts in. For `auto` that also sets `warning` ("harnesses.<id>.auto_approve is not set: …"), since the server then refuses every permission request the agent makes (§5).
+- `mapEffort`: the level itself when the `thought_level` option offers exactly that value, otherwise `undefined` (warning). Model as for natives.
+- No `newSessionMeta`, no `preTurnNoise`: an agent that needs them, or anything else not expressible as data, gets a native definition.
 
 ### 4.2 Worker (acp/worker.ts)
 
@@ -416,6 +424,18 @@ harnesses:
     permissions: allow_all   # per-harness override
   claude:
     env: { ANTHROPIC_BASE_URL: "..." }
+  kimi:                      # a user harness (§4.1): any id that is not native, without "/" or ":"
+    command: kimi            # required
+    args: [acp]
+    env: { X: "1" }
+    permissions: allow_all
+    auto_approve:            # policy auto
+      mode: yolo
+      config_options: { permission: bypass }
+      args: []
+      env: {}
+    ask_approval:            # allow_all, deny_all, elicit; same keys
+      mode: default
 limits:
   timeout_s: 21600
   handshake_s: 60
@@ -423,7 +443,7 @@ limits:
   max_concurrency: 10
   max_depth: 2
 ```
-Config validation with zod; an error goes to stderr at server start and into `list_harnesses.reason`.
+Config validation with zod; an error goes to stderr at server start and into `list_harnesses.reason`. A user harness entry without `command`, an id with `/` or `:`, or `auto_approve` / `ask_approval` on a native id is a config error.
 
 Session records: `~/.cache/throng/sessions/<session_id>.json` = `{ harness, model, effort, cwd, description, created_at, last_used_at, resumable?, turn_started_at?, turn_pid?, last_result? | last_error? }`, keyed by the harness's own ACP session id (UUID-like in all three; collisions across harnesses are not a practical concern). Written when the ACP session exists, updated on every turn: `turn_started_at` and `turn_pid` (the server process running the turn) are set while a turn runs and cleared with the turn's `last_result` (the success payload) or `last_error` (the failure payload). Only the turn that holds the session lock writes these fields: a call that fails before taking the lock (guards, a cancel while queued) returns its error to the caller and leaves the record alone. `resumable` is written once, with the record: whether the adapter advertised `sessionCapabilities.resume` in the handshake of the turn that created the session. A record without it (written by an earlier version) is treated as resumable until the handshake says otherwise.
 
@@ -452,6 +472,5 @@ Tasks, their acceptance criteria and dependencies live in Backlog.md: milestones
 ## 11. Later iterations (not v1)
 
 - File access modes `read-only | read-write | sandbox`: read-only = Claude `plan` mode + `deny_all` on edit kinds, Codex `read-only` sandbox via `CODEX_CONFIG`, OpenCode `permission.edit = deny`. Sandbox is an open question.
-- Live ACP registry fetch on top of the snapshot; "generic" harnesses from it (config options only, no native auto).
 - Cursor: `cursor-agent --model X acp`; the extension methods `cursor/ask_question` and `cursor/create_plan` must be answered.
 - ACP v2: `session/prompt` no longer closes the turn, stop arrives in `state_update`; `tool_call` merges into `tool_call_update`. Isolated in Worker/collector.

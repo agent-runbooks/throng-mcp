@@ -10,7 +10,7 @@ Optional, `~/.config/throng/config.yaml`. Every key has a default; an empty or m
 # Permission policy: auto | allow_all | deny_all | elicit (see Permissions below).
 permissions: auto
 
-# Per-harness overrides, all optional.
+# Per-harness overrides and user harnesses, all optional.
 harnesses:
   # claude:
   #   env: { CLAUDE_CODE_OAUTH_TOKEN: "..." }  # extra adapter env; e.g. auth when the standalone `claude` isn't logged in
@@ -22,6 +22,11 @@ harnesses:
   #   env: { X: "1" }
   # gemini:
   #   permissions: deny_all                    # harness ids: claude, codex, opencode, gemini
+  # kimi:                                      # any other id is a user harness (see User harnesses below)
+  #   command: kimi                            # required
+  #   args: [acp]
+  #   auto_approve: { mode: yolo }             # under policy auto
+  #   ask_approval: { mode: default }          # under allow_all, deny_all, elicit
 
 limits:
   timeout_s: 21600       # default turn timeout (6 h)
@@ -32,6 +37,44 @@ limits:
 ```
 
 Unknown keys are rejected. A broken config is logged on server start and shows up in every `list_harnesses` `unavailable` reason; `run_thronglet` refuses to run until it's fixed. It never falls back to defaults, which might be less strict than what you meant.
+
+## User harnesses
+
+Any ACP agent besides the four built-in harnesses can be described under `harnesses.<id>`, where `<id>` is not one of `claude`, `codex`, `opencode`, `gemini`. The entry is the whole definition: throng installs nothing, looks nothing up in the ACP registry, and doesn't guess commands or modes. Then `run_thronglet` takes `<id>/<model>[:<effort>]` and `list_harnesses` probes it like the others.
+
+```yaml
+harnesses:
+  kimi:
+    command: kimi
+    args: [acp]
+    env: { KIMI_X: "1" }
+    permissions: allow_all
+    auto_approve:
+      mode: yolo
+      config_options: { permission: bypass, brave_mode: true }
+      args: []
+      env: {}
+    ask_approval:
+      mode: default
+```
+
+- The id is letters, digits, `.`, `_` and `-`, starting with a letter or digit (no `/` or `:`, which the agent spec uses).
+- `command` (required): a name looked up on PATH, or a path containing `/`. `args` and `env` are what throng launches it with; `env` is added to the server's environment.
+- `permissions`: the per-harness policy override, as for the built-in harnesses.
+- `auto_approve` is used under policy `auto`, `ask_approval` under `allow_all`, `deny_all` and `elicit`. Each takes:
+  - `mode`: a session mode id, set after the session starts and on every resumed turn. Strict: if the agent rejects it, the run fails.
+  - `config_options`: `{ <option id>: <value> }`, set in the order written after the mode. A string is a select option's value, `true`/`false` a boolean option's. Best effort: an option the agent doesn't advertise, or rejects, is a warning and the turn runs anyway.
+  - `args`: appended to `args` for the runs under that policy.
+  - `env`: added to `env` for the runs under that policy.
+
+  `list_harnesses` launches the agent with `command`, `args` and `env` only.
+- Without `auto_approve`, policy `auto` leaves the agent in the mode it starts in, and the result warns `harnesses.<id>.auto_approve is not set`. throng refuses every permission request such an agent makes, so it can do only what its starting mode allows without asking. `auto_approve: {}` says that on purpose and silences the warning.
+- Without `ask_approval`, the other policies also leave the starting mode; throng answers the permission requests as the policy says (allow, reject or ask you).
+- Model: the agent's `model` config option, or the `models` list of the session; a model it doesn't offer is `model_rejected`.
+- Effort: the level is set only when the agent's effort (`thought_level`) option has exactly that value; otherwise it is a warning. No mapping between levels.
+- `auto_approve` and `ask_approval` on a built-in harness, a user harness without `command`, or an id with `/` or `:` is a config error.
+
+An agent that needs more than this (a different effort scale, special session parameters, filtering its chatter) needs a built-in harness definition in throng's code.
 
 ## Environment variables
 
@@ -71,6 +114,7 @@ The `:<effort>` suffix of the agent spec is taken as effort only when it is `low
 | what you see | what to do |
 |---|---|
 | `harness_unavailable` | the adapter isn't on PATH, and the message carries the install command; or the config is broken (message starts with `config error:`): fix the yaml, throng won't run on defaults |
+| `harness_unavailable` on a user harness | `<command> (harnesses.<id>.command) not found on PATH`: install the agent or fix `command` (a name on PATH or a path). `Unknown harness "<id>"`: the id is neither built in nor in the config; the message lists the valid ones. A session whose user harness has since left the config gets the same error from `send_message` |
 | `elicitation_unsupported` | `permissions: elicit` (global or `harnesses.<harness>.permissions`) but the MCP client has no elicitation support; the message names the key. Use a client that has it or pick another policy |
 | `model_rejected` | the model isn't one of the harness's values. Call `list_harnesses` for the current list; they are the harness's own option values and change with harness versions |
 | `handshake_timeout`, `spawn_failed`, `handshake_failed` | the message includes the adapter's stderr. Usual cause is auth: check `claude auth status` (or set `CLAUDE_CODE_OAUTH_TOKEN` in config), `codex login`, `opencode auth login`, `gemini` (sign in once). Slow first start: raise `limits.handshake_s` |

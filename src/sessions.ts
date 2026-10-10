@@ -2,13 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { type Effort, HARNESS_IDS, type HarnessId, type RunFailure, type RunSuccess, ThrongError } from './contract.ts';
+import { type Effort, type RunFailure, type RunSuccess, ThrongError } from './contract.ts';
 import { log } from './log.ts';
 
 // Session records under <cacheDir>/sessions (DESIGN §8), keyed by the harness's own ACP session id.
 
 export interface SessionRecord {
-    harness: HarnessId;
+    /** A native id or a user harness id; the latter may have left the config since. */
+    harness: string;
     model: string;
     effort?: Effort;
     cwd: string;
@@ -213,7 +214,8 @@ export async function loadSessionRecord(dir: string, sessionId: string): Promise
             `no session record for ${id} (records live 14 days under ${dir}/sessions)`
         );
     if (
-        !(HARNESS_IDS as readonly unknown[]).includes(record.harness) ||
+        typeof record.harness !== 'string' ||
+        record.harness === '' ||
         typeof record.model !== 'string' ||
         typeof record.cwd !== 'string'
     ) {

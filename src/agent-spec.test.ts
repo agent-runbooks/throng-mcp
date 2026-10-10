@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseAgentSpec } from './agent-spec.ts';
-import { EFFORT_LEVELS, type ErrorCode, HARNESS_IDS, ThrongError } from './contract.ts';
+import { formatAgentSpec, parseAgentSpec } from './agent-spec.ts';
+import { EFFORT_LEVELS, type ErrorCode, ThrongError } from './contract.ts';
 
 function assertThrongError(fn: () => unknown, code: ErrorCode, includes: string[]): void {
     let error: unknown;
@@ -57,11 +57,14 @@ describe('parseAgentSpec', () => {
         });
     }
 
-    it('rejects an unknown or missing harness with harness_unavailable', () => {
-        assertThrongError(() => parseAgentSpec('nope/pro'), 'harness_unavailable', ['"nope"', ...HARNESS_IDS]);
-        assertThrongError(() => parseAgentSpec('Claude/opus-5-5'), 'harness_unavailable', ['"Claude"']);
+    it('rejects a missing harness with harness_unavailable', () => {
         assertThrongError(() => parseAgentSpec(''), 'harness_unavailable', ['""']);
         assertThrongError(() => parseAgentSpec('/opus-5-5'), 'harness_unavailable', ['""']);
+    });
+
+    it('leaves a non-empty harness id to the run, which knows the config', () => {
+        expect(parseAgentSpec('kimi/k2:high')).toStrictEqual({ harness: 'kimi', model: 'k2', effort: 'high' });
+        expect(parseAgentSpec('nope/pro')).toStrictEqual({ harness: 'nope', model: 'pro' });
     });
 
     it('rejects an empty model with model_rejected', () => {
@@ -71,5 +74,10 @@ describe('parseAgentSpec', () => {
                 '<harness>/<model>[:<effort>]',
             ]);
         }
+    });
+
+    it('formatAgentSpec spells a parsed spec back', () => {
+        for (const spec of ['claude/opus-5-5', 'codex/gpt-6-sol:xhigh', 'opencode/ollama/llama3:8b', 'kimi/k2:low'])
+            expect(formatAgentSpec(parseAgentSpec(spec))).toBe(spec);
     });
 });

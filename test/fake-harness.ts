@@ -11,7 +11,6 @@ import { SessionRegistry } from '../src/registry.ts';
 import type { RunContext } from '../src/run.ts';
 import { Semaphore } from '../src/semaphore.ts';
 import { type SessionRecord, writeSessionRecord } from '../src/sessions.ts';
-import type { HarnessId } from '../src/contract.ts';
 import type { FakeScenario } from './fake-agent/index.ts';
 
 // A sandbox for runCall tests on the fake agent: temp root, PATH with only `node`, configs whose harness is the fake.
@@ -30,9 +29,9 @@ export interface FakeHarness {
         extra?: string,
         agentEnv?: Record<string, string>
     ): { loaded: LoadedConfig; tag: string };
-    /** `fakeClaude` for any harness id. */
+    /** `fakeClaude` for any harness id; a non-native id makes the fake a user harness (`extra` may continue its entry). */
     fakeAs(
-        harness: HarnessId,
+        harness: string,
         scenario: FakeScenario,
         extra?: string,
         agentEnv?: Record<string, string>

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { type Config, DEFAULT_CONFIG, type PermissionPolicy } from '../config.ts';
 import { HARNESS_IDS } from '../contract.ts';
-import { HARNESSES, findOnPath, harnessById, installHint, loadRegistry } from './index.ts';
+import { HARNESSES, findOnPath, harnessFor, harnessIds, installHint, loadRegistry } from './index.ts';
 import type { HarnessLaunch, HarnessResolution, RegistrySnapshot } from './types.ts';
 
 const root = mkdtempSync(join(tmpdir(), 'throng-harnesses-'));
@@ -70,13 +70,36 @@ describe('registry and PATH lookup', () => {
 
     it('HARNESSES covers every harness id', () => {
         expect(Object.keys(HARNESSES)).toStrictEqual([...HARNESS_IDS]);
-        for (const id of HARNESS_IDS) expect(harnessById(id).id).toBe(id);
-        expect(HARNESS_IDS.map(id => harnessById(id).registryId)).toStrictEqual([
+        for (const id of HARNESS_IDS) expect(harnessFor(id, DEFAULT_CONFIG)?.id).toBe(id);
+        expect(HARNESS_IDS.map(id => harnessFor(id, DEFAULT_CONFIG)?.registryId)).toStrictEqual([
             'claude-acp',
             'codex-acp',
             'opencode',
             'gemini',
         ]);
+    });
+});
+
+describe('harnessFor and harnessIds', () => {
+    const config = withHarnesses({
+        claude: { permissions: 'deny_all' },
+        kimi: { command: 'kimi', args: ['acp'] },
+        'qwen.code': { command: 'qwen' },
+    });
+
+    it('natives first, then user harnesses from the config; anything else is unknown', () => {
+        expect(harnessFor('claude', config)).toBe(HARNESSES.claude);
+        const kimi = harnessFor('kimi', config);
+        expect(kimi?.id).toBe('kimi');
+        expect(kimi?.registryId).toBe(undefined);
+        expect(harnessFor('glm', config)).toBe(undefined);
+        expect(harnessFor('kimi', DEFAULT_CONFIG)).toBe(undefined);
+        expect(harnessFor('constructor', config)).toBe(undefined);
+    });
+
+    it('lists the natives, then the user ids in config order', () => {
+        expect(harnessIds(config)).toStrictEqual([...HARNESS_IDS, 'kimi', 'qwen.code']);
+        expect(harnessIds(DEFAULT_CONFIG)).toStrictEqual([...HARNESS_IDS]);
     });
 });
 

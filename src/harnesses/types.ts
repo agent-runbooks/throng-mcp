@@ -1,5 +1,5 @@
 import type { Config, PermissionPolicy } from '../config.ts';
-import type { Effort, HarnessId } from '../contract.ts';
+import type { Effort } from '../contract.ts';
 
 // HarnessDefinition contract (DESIGN §4.1, decision-3): plain data plus three hooks.
 // Everything harness-specific (adapter command, env for the harness binary, knob names,
@@ -44,11 +44,15 @@ export interface PermissionSetup {
     configOptions?: { id: string; value: ConfigOptionValue }[];
     /** Appended to the launch args of the adapter process. */
     args?: string[];
+    /** Reported on the call's result: the policy could not be expressed natively (a user harness without `auto_approve`). */
+    warning?: string;
 }
 
 export interface HarnessDefinition {
-    id: HarnessId;
-    registryId: string;
+    /** A native `HarnessId`, or the config key of a user harness (DESIGN §8). */
+    id: string;
+    /** Natives only: the registry entry their install hint comes from. */
+    registryId?: string;
     /** Adapter command from config or PATH; harness binary env when found (decision-3). Pure: no spawning. */
     resolve(config: Config, registry: RegistrySnapshot, env?: NodeJS.ProcessEnv): HarnessResolution;
     /** Our effort level → value of the `thought_level` option; `undefined` = not applicable, reported as a warning. */

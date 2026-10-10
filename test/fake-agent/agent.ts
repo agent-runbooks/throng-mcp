@@ -40,7 +40,15 @@ function record(call: FakeCall): void {
 }
 
 const trust = process.env.GEMINI_CLI_TRUST_WORKSPACE;
-record({ event: 'start', argv: process.argv.slice(2), ...(trust === undefined ? {} : { trustWorkspace: trust }) });
+const probes = Object.fromEntries(
+    Object.entries(process.env).filter((e): e is [string, string] => e[0].startsWith('PROBE_') && e[1] !== undefined)
+);
+record({
+    event: 'start',
+    argv: process.argv.slice(2),
+    ...(trust === undefined ? {} : { trustWorkspace: trust }),
+    ...(Object.keys(probes).length ? { probes } : {}),
+});
 /** FAKE_STDERR: a line written to stderr at startup, before the handshake. */
 if (process.env.FAKE_STDERR) process.stderr.write(`${process.env.FAKE_STDERR}\n`);
 

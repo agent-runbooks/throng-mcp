@@ -1,7 +1,6 @@
 import type { RequestPermissionRequest, RequestPermissionResponse } from '@agentclientprotocol/sdk';
 import type { ElicitRequestFormParams, ElicitResult } from '@modelcontextprotocol/sdk/types.js';
 import type { Config, PermissionPolicy } from './config.ts';
-import type { HarnessId } from './contract.ts';
 import { log } from './log.ts';
 
 // Answers to `session/request_permission` (DESIGN §5): auto, allow_all, deny_all, elicit.
@@ -38,7 +37,7 @@ export interface PermissionBridge {
 }
 
 /** Per-harness override, else the global default. Never a tool parameter (DESIGN §5). */
-export function resolvePolicy(config: Config, harness: HarnessId): PermissionPolicy {
+export function resolvePolicy(config: Config, harness: string): PermissionPolicy {
     return config.harnesses[harness]?.permissions ?? config.permissions;
 }
 

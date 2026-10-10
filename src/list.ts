@@ -5,7 +5,7 @@ import type { Worker } from './acp/types.ts';
 import { startWorker } from './acp/worker.ts';
 import type { Config, LoadedConfig } from './config.ts';
 import { HARNESS_IDS, type HarnessInfo, type ListHarnessesOutput } from './contract.ts';
-import { HARNESSES, loadRegistry } from './harnesses/index.ts';
+import { harnessFor, harnessIds, loadRegistry } from './harnesses/index.ts';
 import { optionByCategory } from './harnesses/select.ts';
 import type { HarnessDefinition, RegistrySnapshot } from './harnesses/types.ts';
 
@@ -62,7 +62,10 @@ export async function probeHarness(
     }
 }
 
-/** A config error marks every harness unavailable without probing; otherwise every harness is probed in parallel. */
+/**
+ * A config error marks every native harness unavailable without probing (user harnesses are unknown then); otherwise
+ * every native and configured user harness is probed in parallel.
+ */
 export async function listHarnesses(loaded: LoadedConfig, opts: ProbeOptions): Promise<ListHarnessesOutput> {
     const { config } = loaded;
     const limits = {
@@ -77,11 +80,9 @@ export async function listHarnesses(loaded: LoadedConfig, opts: ProbeOptions): P
     }
 
     const registry = loadRegistry();
+    const defs = harnessIds(config).flatMap(id => harnessFor(id, config) ?? []);
     const results = await Promise.all(
-        HARNESS_IDS.map(async harness => ({
-            harness,
-            result: await probeHarness(HARNESSES[harness], config, registry, opts),
-        }))
+        defs.map(async def => ({ harness: def.id, result: await probeHarness(def, config, registry, opts) }))
     );
     const out: ListHarnessesOutput = { harnesses: [], unavailable: [], limits };
     for (const { harness, result } of results) {
