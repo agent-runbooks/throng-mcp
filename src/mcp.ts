@@ -5,6 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import pkg from '../package.json' with { type: 'json' };
 import { closeAllWorkers } from './acp/worker.ts';
 import { loadConfig, readDepth } from './config.ts';
+import { shadowedHarnesses } from './harnesses/index.ts';
 import { log } from './log.ts';
 import { registerTools } from './mcp/tools.ts';
 import { SessionRegistry } from './registry.ts';
@@ -26,6 +27,8 @@ const submitTool = fileURLToPath(
 
 const loaded = loadConfig();
 if (loaded.error) log.error('config error: run_thronglet refuses to run until it is fixed', { error: loaded.error });
+for (const id of shadowedHarnesses(loaded.config))
+    log.warn(`custom_harnesses.${id} shadows the built-in ${id} harness`, { config: loaded.path });
 
 const cache = cacheDir();
 await rotate(cache);

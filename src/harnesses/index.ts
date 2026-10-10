@@ -2,24 +2,30 @@ import type { Config } from '../config.ts';
 import { HARNESS_IDS, type HarnessId, isBuiltinHarness } from '../contract.ts';
 import { claude } from './claude.ts';
 import { codex } from './codex.ts';
+import { customHarness } from './custom.ts';
 import { gemini } from './gemini.ts';
 import { opencode } from './opencode.ts';
 import type { HarnessDefinition } from './types.ts';
-import { userHarness } from './user.ts';
 
 export { findOnPath, installHint, loadRegistry } from './discovery.ts';
 
-/** The native harnesses (DESIGN §4.1). */
+/** The built-in harnesses (DESIGN §4.1). */
 export const HARNESSES: Record<HarnessId, HarnessDefinition> = { claude, codex, opencode, gemini };
 
-/** A native harness, else a user harness from `config.harnesses`; `undefined` when `id` is neither. */
+/** A custom harness from `config.custom_harnesses`, else a built-in one; `undefined` when `id` is neither. */
 export function harnessFor(id: string, config: Config): HarnessDefinition | undefined {
-    if (isBuiltinHarness(id)) return HARNESSES[id];
-    const entry = Object.hasOwn(config.harnesses, id) ? config.harnesses[id] : undefined;
-    return entry?.command === undefined ? undefined : userHarness(id, { ...entry, command: entry.command });
+    const entry = Object.hasOwn(config.custom_harnesses, id) ? config.custom_harnesses[id] : undefined;
+    if (entry) return customHarness(id, entry);
+    return isBuiltinHarness(id) ? HARNESSES[id] : undefined;
 }
 
-/** Every harness id `config` knows: the natives, then the user harnesses. */
+/** Every harness id `config` knows: the built-in ones not shadowed by a custom harness, then the custom ones. */
 export function harnessIds(config: Config): string[] {
-    return [...HARNESS_IDS, ...Object.keys(config.harnesses).filter(id => !isBuiltinHarness(id))];
+    const shadowed = new Set<string>(shadowedHarnesses(config));
+    return [...HARNESS_IDS.filter(id => !shadowed.has(id)), ...Object.keys(config.custom_harnesses)];
+}
+
+/** Built-in ids that `custom_harnesses` redefines, which makes the built-in harness unreachable. */
+export function shadowedHarnesses(config: Config): HarnessId[] {
+    return HARNESS_IDS.filter(id => Object.hasOwn(config.custom_harnesses, id));
 }

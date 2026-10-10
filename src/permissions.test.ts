@@ -8,7 +8,7 @@ import {
     type Elicitation,
     isThrongResultCall,
     type PermissionDecision,
-    resolvePolicy,
+    policySource,
 } from './permissions.ts';
 
 function request(
@@ -32,15 +32,43 @@ const onceOptions: RequestPermissionRequest['options'] = [
 ];
 
 describe('permissions', () => {
-    it('resolvePolicy: per-harness override wins over the global default', () => {
+    it('policySource: a per-harness override wins over the global default', () => {
         const config: Config = {
             ...DEFAULT_CONFIG,
             permissions: 'deny_all',
             harnesses: { codex: { permissions: 'auto' } },
         };
-        expect(resolvePolicy(config, 'codex')).toBe('auto');
-        expect(resolvePolicy(config, 'claude')).toBe('deny_all');
-        expect(resolvePolicy(DEFAULT_CONFIG, 'opencode')).toBe('auto');
+        expect(policySource(config, 'codex')).toStrictEqual({ key: 'harnesses.codex.permissions', policy: 'auto' });
+        expect(policySource(config, 'claude')).toStrictEqual({ key: 'permissions', policy: 'deny_all' });
+        expect(policySource(DEFAULT_CONFIG, 'opencode')).toStrictEqual({ key: 'permissions', policy: 'auto' });
+    });
+
+    it('policySource: a custom harness entry wins over a built-in override of the same id', () => {
+        const config: Config = {
+            ...DEFAULT_CONFIG,
+            permissions: 'deny_all',
+            harnesses: { claude: { permissions: 'elicit' }, codex: { permissions: 'elicit' } },
+            custom_harnesses: {
+                claude: { command: 'my-claude', permissions: 'allow_all' },
+                codex: { command: 'my-codex' },
+                kimi: { command: 'kimi', permissions: 'auto' },
+            },
+        };
+        expect(policySource(config, 'claude')).toStrictEqual({
+            key: 'custom_harnesses.claude.permissions',
+            policy: 'allow_all',
+        });
+        expect(policySource(config, 'codex')).toStrictEqual({ key: 'permissions', policy: 'deny_all' });
+        expect(policySource(config, 'kimi')).toStrictEqual({
+            key: 'custom_harnesses.kimi.permissions',
+            policy: 'auto',
+        });
+        expect(policySource(config, 'opencode')).toStrictEqual({ key: 'permissions', policy: 'deny_all' });
+        expect(policySource({ ...config, custom_harnesses: {} }, 'claude')).toStrictEqual({
+            key: 'harnesses.claude.permissions',
+            policy: 'elicit',
+        });
+        expect(policySource(config, 'glm')).toStrictEqual({ key: 'permissions', policy: 'deny_all' });
     });
 
     it('auto rejects: reject_once picked by kind, never reject_always or allow_*, and reports the decision', async () => {

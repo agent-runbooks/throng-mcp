@@ -8,7 +8,7 @@ import { log } from './log.ts';
 // Session records under <cacheDir>/sessions (DESIGN §8), keyed by the harness's own ACP session id.
 
 export interface SessionRecord {
-    /** A native id or a user harness id; the latter may have left the config since. */
+    /** A built-in or custom harness id; a custom one may have left the config since. */
     harness: string;
     model: string;
     effort?: Effort;

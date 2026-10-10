@@ -63,8 +63,8 @@ export async function probeHarness(
 }
 
 /**
- * A config error marks every native harness unavailable without probing (user harnesses are unknown then); otherwise
- * every native and configured user harness is probed in parallel.
+ * A config error marks every built-in harness unavailable without probing (custom harnesses are unknown then);
+ * otherwise every harness of `harnessIds` is probed in parallel.
  */
 export async function listHarnesses(loaded: LoadedConfig, opts: ProbeOptions): Promise<ListHarnessesOutput> {
     const { config } = loaded;

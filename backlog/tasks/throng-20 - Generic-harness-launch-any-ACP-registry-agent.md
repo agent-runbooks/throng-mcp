@@ -1,11 +1,11 @@
 ---
 id: THRONG-20
 title: User-defined harnesses from config
-status: In Progress
+status: Review
 assignee:
   - '@opus'
 created_date: '2026-10-02 21:22'
-updated_date: '2026-10-10 16:02'
+updated_date: '2026-10-10 16:22'
 labels: []
 milestone: m-3
 dependencies: []
@@ -46,15 +46,15 @@ Both blocks take mode, config_options, args, env. No effort mapping and no pre-t
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A `custom_harnesses.<id>` entry defines a custom harness with `command` (required; a name on PATH or a path), `args`, `env`, `permissions`, `auto_approve`, `ask_approval`; run_thronglet accepts `<id>/<model>[:<effort>]` and launches `command args` with `env`. `harnesses` takes only the built-in ids, as before this task. An id outside letters, digits, `.`, `_`, `-`, or a missing `command`, is a config error
-- [ ] #2 A custom harness whose command is not found: run_thronglet fails with harness_unavailable before spawn, naming the command and its config key, without an install hint; list_harnesses lists it under unavailable with the same reason. An agent spec whose harness is neither built-in nor custom fails with harness_unavailable listing the valid harness ids
-- [ ] #3 Policy auto applies `auto_approve`, the other policies apply `ask_approval`: `mode` via session/set_mode (strict, as for built-in harnesses), `config_options` via session/set_config_option (best effort with warnings, as in THRONG-21), `args` appended to the launch args, `env` merged into the adapter env; applied after session/new and after session/resume. Policy auto without `auto_approve` runs in the agent's starting mode and the result carries a warning naming `custom_harnesses.<id>.auto_approve`. Answers to request_permission follow DESIGN §5 unchanged
-- [ ] #4 Model and effort on a custom harness: model through the `model` config option or the session `models` list with session/set_model; a model not offered → model_rejected; effort is set only when the `thought_level` option offers exactly that value, otherwise a warning
-- [ ] #5 A custom harness session works with send_message, wait_thronglet, list_thronglets and cancel_thronglet like a built-in one; send_message to a session whose harness is no longer configured fails with harness_unavailable before spawn
-- [ ] #6 Built-in harnesses behave exactly as before: their config keys, list_harnesses output and existing tests are unchanged
-- [ ] #7 A custom id equal to a built-in id wins: runs, list_harnesses, policy lookup and resumed sessions use the custom definition, and the server logs at start that the built-in harness is shadowed
-- [ ] #8 Tests via test/fake-agent cover: launch with command/args/env from config, auto_approve mode and config options, the missing auto_approve warning, ask_approval under allow_all, model and effort, command not found, unknown harness id, a resumed turn, a custom id shadowing a built-in one
-- [ ] #9 DESIGN (§3.1, §3.4, §4.1, §8, §11), docs/configuration.md and README describe custom harnesses and call the others built-in; a backlog decision records that harnesses beyond the built-in ones come from config only, not from the ACP registry
+- [x] #1 A `custom_harnesses.<id>` entry defines a custom harness with `command` (required; a name on PATH or a path), `args`, `env`, `permissions`, `auto_approve`, `ask_approval`; run_thronglet accepts `<id>/<model>[:<effort>]` and launches `command args` with `env`. `harnesses` takes only the built-in ids, as before this task. An id outside letters, digits, `.`, `_`, `-`, or a missing `command`, is a config error
+- [x] #2 A custom harness whose command is not found: run_thronglet fails with harness_unavailable before spawn, naming the command and its config key, without an install hint; list_harnesses lists it under unavailable with the same reason. An agent spec whose harness is neither built-in nor custom fails with harness_unavailable listing the valid harness ids
+- [x] #3 Policy auto applies `auto_approve`, the other policies apply `ask_approval`: `mode` via session/set_mode (strict, as for built-in harnesses), `config_options` via session/set_config_option (best effort with warnings, as in THRONG-21), `args` appended to the launch args, `env` merged into the adapter env; applied after session/new and after session/resume. Policy auto without `auto_approve` runs in the agent's starting mode and the result carries a warning naming `custom_harnesses.<id>.auto_approve`. Answers to request_permission follow DESIGN §5 unchanged
+- [x] #4 Model and effort on a custom harness: model through the `model` config option or the session `models` list with session/set_model; a model not offered → model_rejected; effort is set only when the `thought_level` option offers exactly that value, otherwise a warning
+- [x] #5 A custom harness session works with send_message, wait_thronglet, list_thronglets and cancel_thronglet like a built-in one; send_message to a session whose harness is no longer configured fails with harness_unavailable before spawn
+- [x] #6 Built-in harnesses behave exactly as before: their config keys, list_harnesses output and existing tests are unchanged
+- [x] #7 A custom id equal to a built-in id wins: runs, list_harnesses, policy lookup and resumed sessions use the custom definition, and the server logs at start that the built-in harness is shadowed
+- [x] #8 Tests via test/fake-agent cover: launch with command/args/env from config, auto_approve mode and config options, the missing auto_approve warning, ask_approval under allow_all, model and effort, command not found, unknown harness id, a resumed turn, a custom id shadowing a built-in one
+- [x] #9 DESIGN (§3.1, §3.4, §4.1, §8, §11), docs/configuration.md and README describe custom harnesses and call the others built-in; a backlog decision records that harnesses beyond the built-in ones come from config only, not from the ACP registry
 - [ ] #10 Smoke (maintainer): a custom harness entry pointing at an installed adapter runs one real turn under policy auto with auto_approve and one under allow_all
 <!-- AC:END -->
 
@@ -224,10 +224,12 @@ Run .agent-runbooks/runs/20261010-throng-20 (worktree throng-20) ended ready. Re
 Deviations: the unknown-harness check moved from parseAgentSpec to run.ts (it needs the config), so two parseAgentSpec assertions (nope/pro, Claude/opus-5-5) moved to run.test.ts; a corrupt-record fixture changed from harness "nope" (now a valid id of a removed user harness, harness_unavailable) to harness 42. Decisions by the coder: one HarnessEntry schema plus a map-level superRefine; a bare `auto_approve:` on a user harness counts as absent (warning), `auto_approve: {}` silences it; unknown harness of a resumed session reads `Unknown harness "<id>" in session <id>`.
 
 Validation: pnpm typecheck, pnpm lint, pnpm test in the worktree: 27 files, 339 tests (baseline 26/303). Token-free real-adapter check: list_harnesses with user entries my-codex (codex-acp), my-opencode (opencode acp) and my-missing: both probed with the same command, version 2.1.1 / 1.18.34, models and efforts as the natives; my-missing under unavailable as "no-such-acp-agent (harnesses.my-missing.command) not found on PATH"; native rows unchanged. AC #9 (a real turn, auto and allow_all) is the maintainer smoke: no install needed, e.g. a `my-codex: { command: codex-acp, auto_approve: { mode: agent }, ask_approval: { mode: read-only } }` entry.
+
+Round 2 (maintainer review on PR #11): custom harnesses moved to their own `custom_harnesses` section, `harnesses` back to built-in overrides only (a typo like `codx:` is an invalid-key error again); "native" renamed to "built-in" for harness kinds; a custom id equal to a built-in one wins (harnessFor, harnessIds, policySource, list_harnesses) and mcp.ts logs each shadowed id at start. Run .agent-runbooks/runs/20261010-throng-20-2 ended ready. Review: Opus 1, GPT 1. Fixed a1: resolvePolicy had no production caller after policySource replaced it; removed, tests folded into policySource. b1 (GPT): a session created by a shadowing custom harness resumes on the built-in one once the custom entry is removed, because the record keeps only the id. Main-session decision: no new record field; DESIGN §3.3 and the configuration.md troubleshooting row now say the built-in harness takes such a session (its adapter usually answers session_not_found). Validation: pnpm typecheck/lint/test 27 files, 347 tests; token-free list_harnesses probe with custom_harnesses my-codex (codex-acp), opencode (shadowing the built-in: listed once, as the custom one) and my-missing (`no-such-acp-agent (custom_harnesses.my-missing.command) not found on PATH`).
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-User harnesses from config (decision-8): a non-native `harnesses.<id>` entry defines a harness with command/args/env/permissions and per-policy auto_approve / ask_approval blocks (mode strict, config_options best effort, args, env). Harness ids are open strings in the agent spec, list_harnesses and session records; an unknown id or a missing command is harness_unavailable before spawn. Natives unchanged. Verified by pnpm typecheck/lint/test (27 files, 339 tests; user.test.ts, config.test.ts, run.test.ts, index.test.ts) and a token-free list_harnesses probe of codex-acp and opencode described as user harnesses. Waits on AC #9, the maintainer smoke of a real turn under auto and allow_all.
+Custom harnesses from config (decision-8): a `custom_harnesses.<id>` entry defines a harness with command/args/env/permissions and per-policy auto_approve / ask_approval blocks (mode strict, config_options best effort, args, env). `harnesses` stays built-in overrides only; a custom id equal to a built-in one wins and is logged at start. Harness ids are open strings in the agent spec, list_harnesses and session records; an unknown id or a missing command is harness_unavailable before spawn. Built-in harnesses unchanged. Verified by pnpm typecheck/lint/test (27 files, 347 tests) and a token-free list_harnesses probe of codex-acp and opencode described as custom harnesses. Waits on AC #10, the maintainer smoke of a real turn under auto and allow_all.
 <!-- SECTION:FINAL_SUMMARY:END -->

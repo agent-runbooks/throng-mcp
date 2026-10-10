@@ -1,7 +1,7 @@
 import { EFFORT_LEVELS, type Effort, ThrongError } from './contract.ts';
 
 export interface AgentSpec {
-    /** A native or user harness id; run.ts checks it against the config. */
+    /** A built-in or custom harness id; run.ts checks it against the config. */
     harness: string;
     model: string;
     effort?: Effort;

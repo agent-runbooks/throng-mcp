@@ -1,12 +1,9 @@
-import type { ApprovalSetup, HarnessEntry } from '../config.ts';
+import type { ApprovalSetup, CustomHarnessEntry } from '../config.ts';
 import { findCommand } from './discovery.ts';
 import type { HarnessDefinition, PermissionSetup } from './types.ts';
 
-// A harness the user describes in the config (DESIGN §4.1 "User harnesses", decision-8): the entry is the whole
+// A harness the user describes in the config (DESIGN §4.1 "Custom harnesses", decision-8): the entry is the whole
 // definition, nothing is inferred.
-
-/** `harnesses.<id>` of a user harness; the config schema makes `command` required for these. */
-export type UserHarnessEntry = HarnessEntry & { command: string };
 
 function setupOf(block: ApprovalSetup): PermissionSetup {
     return {
@@ -19,12 +16,12 @@ function setupOf(block: ApprovalSetup): PermissionSetup {
     };
 }
 
-/** The definition of user harness `id`, built from its config entry. */
-export function userHarness(id: string, entry: UserHarnessEntry): HarnessDefinition {
+/** The definition of custom harness `id`, built from `custom_harnesses.<id>`. */
+export function customHarness(id: string, entry: CustomHarnessEntry): HarnessDefinition {
     return {
         id,
         resolve(_config, _registry, env) {
-            const found = findCommand(id, entry.command, env);
+            const found = findCommand(`custom_harnesses.${id}.command`, entry.command, env);
             if (!found.ok) return { available: false, reason: found.reason };
             return {
                 available: true,
@@ -37,7 +34,7 @@ export function userHarness(id: string, entry: UserHarnessEntry): HarnessDefinit
             if (block) return setupOf(block);
             if (policy !== 'auto') return {};
             return {
-                warning: `harnesses.${id}.auto_approve is not set: ${id} runs in the mode it starts in, and throng refuses every permission request it makes (policy auto)`,
+                warning: `custom_harnesses.${id}.auto_approve is not set: ${id} runs in the mode it starts in, and throng refuses every permission request it makes (policy auto)`,
             };
         },
     };

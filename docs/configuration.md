@@ -10,7 +10,7 @@ Optional, `~/.config/throng/config.yaml`. Every key has a default; an empty or m
 # Permission policy: auto | allow_all | deny_all | elicit (see Permissions below).
 permissions: auto
 
-# Per-harness overrides and user harnesses, all optional.
+# Overrides of the built-in harnesses, all optional. Only the built-in ids go here.
 harnesses:
   # claude:
   #   env: { CLAUDE_CODE_OAUTH_TOKEN: "..." }  # extra adapter env; e.g. auth when the standalone `claude` isn't logged in
@@ -22,7 +22,10 @@ harnesses:
   #   env: { X: "1" }
   # gemini:
   #   permissions: deny_all                    # harness ids: claude, codex, opencode, gemini
-  # kimi:                                      # any other id is a user harness (see User harnesses below)
+
+# Other ACP agents, all optional (see Custom harnesses below).
+custom_harnesses:
+  # kimi:
   #   command: kimi                            # required
   #   args: [acp]
   #   auto_approve: { mode: yolo }             # under policy auto
@@ -38,12 +41,12 @@ limits:
 
 Unknown keys are rejected. A broken config is logged on server start and shows up in every `list_harnesses` `unavailable` reason; `run_thronglet` refuses to run until it's fixed. It never falls back to defaults, which might be less strict than what you meant.
 
-## User harnesses
+## Custom harnesses
 
-Any ACP agent besides the four built-in harnesses can be described under `harnesses.<id>`, where `<id>` is not one of `claude`, `codex`, `opencode`, `gemini`. The entry is the whole definition: throng installs nothing, looks nothing up in the ACP registry, and doesn't guess commands or modes. Then `run_thronglet` takes `<id>/<model>[:<effort>]` and `list_harnesses` probes it like the others.
+Any ACP agent besides the four built-in harnesses can be described under `custom_harnesses.<id>`. The entry is the whole definition: throng installs nothing, looks nothing up in the ACP registry, and doesn't guess commands or modes. Then `run_thronglet` takes `<id>/<model>[:<effort>]` and `list_harnesses` probes it like the others.
 
 ```yaml
-harnesses:
+custom_harnesses:
   kimi:
     command: kimi
     args: [acp]
@@ -59,6 +62,7 @@ harnesses:
 ```
 
 - The id is letters, digits, `.`, `_` and `-`, starting with a letter or digit (no `/` or `:`, which the agent spec uses).
+- An id equal to a built-in one (`custom_harnesses.claude`) replaces the built-in harness everywhere, `harnesses.claude` included, and the server logs a warning at start.
 - `command` (required): a name looked up on PATH, or a path containing `/`. `args` and `env` are what throng launches it with; `env` is added to the server's environment.
 - `permissions`: the per-harness policy override, as for the built-in harnesses.
 - `auto_approve` is used under policy `auto`, `ask_approval` under `allow_all`, `deny_all` and `elicit`. Each takes:
@@ -68,11 +72,11 @@ harnesses:
   - `env`: added to `env` for the runs under that policy.
 
   `list_harnesses` launches the agent with `command`, `args` and `env` only.
-- Without `auto_approve`, policy `auto` leaves the agent in the mode it starts in, and the result warns `harnesses.<id>.auto_approve is not set`. throng refuses every permission request such an agent makes, so it can do only what its starting mode allows without asking. `auto_approve: {}` says that on purpose and silences the warning.
+- Without `auto_approve`, policy `auto` leaves the agent in the mode it starts in, and the result warns `custom_harnesses.<id>.auto_approve is not set`. throng refuses every permission request such an agent makes, so it can do only what its starting mode allows without asking. `auto_approve: {}` says that on purpose and silences the warning.
 - Without `ask_approval`, the other policies also leave the starting mode; throng answers the permission requests as the policy says (allow, reject or ask you).
 - Model: the agent's `model` config option, or the `models` list of the session; a model it doesn't offer is `model_rejected`.
 - Effort: the level is set only when the agent's effort (`thought_level`) option has exactly that value; otherwise it is a warning. No mapping between levels.
-- `auto_approve` and `ask_approval` on a built-in harness, a user harness without `command`, or an id with `/` or `:` is a config error.
+- An entry without `command`, or an id outside the characters above, is a config error.
 
 An agent that needs more than this (a different effort scale, special session parameters, filtering its chatter) needs a built-in harness definition in throng's code.
 
@@ -93,7 +97,7 @@ The policy comes from the config only, never from a tool parameter, so the calli
 - `deny_all`: the same asking mode; every request is rejected.
 - `elicit`: the same asking mode; each request is shown to you as a dialog in the MCP client (the tool title, kind, input truncated to 2 KB, paths) with the one-time choices the harness offered. Your answer goes to the agent; Decline rejects, dismissing the dialog or no answer within `limits.elicitation_s` cancels the request, and the agent carries on either way. Background turns ask the same way. Needs an MCP client that supports elicitation (Claude Code does); otherwise the call fails with `elicitation_unsupported` before anything starts. A throng call inside a thronglet usually fails that way, since its client is the harness.
 
-`harnesses.<harness>.permissions` overrides the policy for one harness.
+`harnesses.<harness>.permissions` (`custom_harnesses.<id>.permissions` for a custom harness) overrides the policy for one harness.
 
 throng's own `submit_result` (structured output) is allowed under every policy. Cancelling a run answers its pending requests `cancelled` and closes any open dialog.
 
@@ -114,8 +118,8 @@ The `:<effort>` suffix of the agent spec is taken as effort only when it is `low
 | what you see | what to do |
 |---|---|
 | `harness_unavailable` | the adapter isn't on PATH, and the message carries the install command; or the config is broken (message starts with `config error:`): fix the yaml, throng won't run on defaults |
-| `harness_unavailable` on a user harness | `<command> (harnesses.<id>.command) not found on PATH`: install the agent or fix `command` (a name on PATH or a path). `Unknown harness "<id>"`: the id is neither built in nor in the config; the message lists the valid ones. A session whose user harness has since left the config gets the same error from `send_message` |
-| `elicitation_unsupported` | `permissions: elicit` (global or `harnesses.<harness>.permissions`) but the MCP client has no elicitation support; the message names the key. Use a client that has it or pick another policy |
+| `harness_unavailable` on a custom harness | `<command> (custom_harnesses.<id>.command) not found on PATH`: install the agent or fix `command` (a name on PATH or a path). `Unknown harness "<id>"`: the id is neither built in nor in the config; the message lists the valid ones. A session whose custom harness has since left the config gets the same error from `send_message`, unless its id is a built-in one: then the built-in harness gets the message |
+| `elicitation_unsupported` | `permissions: elicit` (global, `harnesses.<harness>.permissions` or `custom_harnesses.<id>.permissions`) but the MCP client has no elicitation support; the message names the key. Use a client that has it or pick another policy |
 | `model_rejected` | the model isn't one of the harness's values. Call `list_harnesses` for the current list; they are the harness's own option values and change with harness versions |
 | `handshake_timeout`, `spawn_failed`, `handshake_failed` | the message includes the adapter's stderr. Usual cause is auth: check `claude auth status` (or set `CLAUDE_CODE_OAUTH_TOKEN` in config), `codex login`, `opencode auth login`, `gemini` (sign in once). Slow first start: raise `limits.handshake_s` |
 | `empty_result` | the agent ended its turn without saying anything; the harness's own session log shows what it did |

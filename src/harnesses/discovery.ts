@@ -34,11 +34,11 @@ export function findOnPath(name: string, env: NodeJS.ProcessEnv = process.env): 
 }
 
 /**
- * `harnesses.<id>.command`: a value with a "/" is a path that must be an executable file, anything else is looked up on
- * PATH. `reason` names the value and its config key.
+ * A configured command: a value with a "/" is a path that must be an executable file, anything else is looked up on
+ * PATH. `reason` names the value and `key`, its config key path.
  */
 export function findCommand(
-    id: string,
+    key: string,
     configured: string,
     env: NodeJS.ProcessEnv = process.env
 ): { ok: true; command: string } | { ok: false; reason: string } {
@@ -50,7 +50,7 @@ export function findCommand(
         : findOnPath(configured, env);
     if (command) return { ok: true, command };
     const where = isPath ? 'not found or not executable' : 'not found on PATH';
-    return { ok: false, reason: `${configured} (harnesses.${id}.command) ${where}` };
+    return { ok: false, reason: `${configured} (${key}) ${where}` };
 }
 
 /** Agents that ship as a binary. npm adapters (claude-agent-acp, codex-acp) get `npm i -g <package>` from the registry instead. */
@@ -92,7 +92,7 @@ export function resolveAdapter(
 
     let command: string | undefined;
     if (override?.command) {
-        const found = findCommand(spec.id, override.command, env);
+        const found = findCommand(`harnesses.${spec.id}.command`, override.command, env);
         if (!found.ok) return { available: false, reason: `${found.reason}; install: ${hint}` };
         command = found.command;
     } else {

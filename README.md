@@ -12,7 +12,7 @@ An MCP server that lets your agent hand work to another one. Any MCP client can 
 
 Supported harnesses: Claude Code, Codex, OpenCode (and every model it can reach), Gemini CLI. Setup for each is under [Install](#2-the-agents-to-run).
 
-Any other ACP agent can be described in the config as a user harness: its command, and the mode or options that make it auto-approve or ask. throng installs nothing for it and guesses nothing; see [User harnesses](docs/configuration.md#user-harnesses).
+Any other ACP agent can be described in the config as a custom harness: its command, and the mode or options that make it auto-approve or ask. throng installs nothing for it and guesses nothing; see [Custom harnesses](docs/configuration.md#custom-harnesses).
 
 ## Example
 

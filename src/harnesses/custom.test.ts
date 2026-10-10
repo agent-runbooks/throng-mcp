@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { type FakeCall, type FakeScenario, readFakeCalls } from '../../test/fake-agent/index.ts';
 import { fakeHarness, tagAlive } from '../../test/fake-harness.ts';
-import { DEFAULT_CONFIG, loadConfig, type LoadedConfig } from '../config.ts';
+import { type CustomHarnessEntry, DEFAULT_CONFIG, loadConfig, type LoadedConfig } from '../config.ts';
 import type { RunFailure, RunSuccess } from '../contract.ts';
 import { cancelThronglet, stopBoundMs } from '../cancel.ts';
 import { listHarnesses } from '../list.ts';
@@ -14,14 +14,14 @@ import { noProgress } from '../progress.ts';
 import type { RunContext, RunOutcome } from '../run.ts';
 import { readSessionRecord } from '../sessions.ts';
 import { waitThronglet } from '../wait.ts';
+import { customHarness } from './custom.ts';
 import { loadRegistry } from './index.ts';
 import type { HarnessResolution } from './types.ts';
-import { userHarness, type UserHarnessEntry } from './user.ts';
 
-// User harnesses (DESIGN §4.1 "User harnesses", decision-8): the definition built from a config entry, and runs of one
-// backed by the fake agent.
+// Custom harnesses (DESIGN §4.1 "Custom harnesses", decision-8): the definition built from a config entry, and runs of
+// one backed by the fake agent.
 
-const h = fakeHarness('throng-user-');
+const h = fakeHarness('throng-custom-');
 afterAll(() => h.cleanup());
 
 const registry = loadRegistry();
@@ -34,9 +34,9 @@ const AUTO_APPROVE = {
     env: { KIMI_YOLO: '1' },
 };
 
-const kimi = (entry: Partial<UserHarnessEntry> = {}) => userHarness('kimi', { command: 'kimi', ...entry });
+const kimi = (entry: Partial<CustomHarnessEntry> = {}) => customHarness('kimi', { command: 'kimi', ...entry });
 
-describe('userHarness: permissionSetup', () => {
+describe('customHarness: permissionSetup', () => {
     it('auto takes auto_approve, the other policies ask_approval', () => {
         const def = kimi({ auto_approve: AUTO_APPROVE, ask_approval: { mode: 'default', args: ['--ask'] } });
         expect(def.permissionSetup('auto')).toStrictEqual({
@@ -56,7 +56,7 @@ describe('userHarness: permissionSetup', () => {
         const setup = kimi({ ask_approval: { mode: 'default' } }).permissionSetup('auto');
         expect(setup).toStrictEqual({
             warning:
-                'harnesses.kimi.auto_approve is not set: kimi runs in the mode it starts in, and throng refuses every permission request it makes (policy auto)',
+                'custom_harnesses.kimi.auto_approve is not set: kimi runs in the mode it starts in, and throng refuses every permission request it makes (policy auto)',
         });
     });
 
@@ -81,7 +81,7 @@ describe('userHarness: permissionSetup', () => {
     });
 });
 
-describe('userHarness: mapEffort', () => {
+describe('customHarness: mapEffort', () => {
     it('only an exact thought_level value', () => {
         const def = kimi();
         expect(def.mapEffort('high', ['low', 'high'])).toBe('high');
@@ -90,7 +90,7 @@ describe('userHarness: mapEffort', () => {
     });
 });
 
-describe('userHarness: resolve', () => {
+describe('customHarness: resolve', () => {
     let dirs = 0;
     function dirWith(files: { name: string; mode: number }[]): string {
         const dir = join(h.root, `resolve-${dirs++}`);
@@ -101,8 +101,8 @@ describe('userHarness: resolve', () => {
         }
         return dir;
     }
-    const resolve = (entry: UserHarnessEntry, env: NodeJS.ProcessEnv): HarnessResolution =>
-        userHarness('kimi', entry).resolve(DEFAULT_CONFIG, registry, env);
+    const resolve = (entry: CustomHarnessEntry, env: NodeJS.ProcessEnv): HarnessResolution =>
+        customHarness('kimi', entry).resolve(DEFAULT_CONFIG, registry, env);
 
     it('a name found on PATH: its absolute path, the entry args and env, nothing else', () => {
         const dir = dirWith([{ name: 'kimi', mode: 0o755 }]);
@@ -118,7 +118,7 @@ describe('userHarness: resolve', () => {
     it('a name not on PATH: the command and its config key, no install hint', () => {
         expect(resolve({ command: 'kimi' }, { PATH: dirWith([]) })).toStrictEqual({
             available: false,
-            reason: 'kimi (harnesses.kimi.command) not found on PATH',
+            reason: 'kimi (custom_harnesses.kimi.command) not found on PATH',
         });
     });
 
@@ -134,13 +134,13 @@ describe('userHarness: resolve', () => {
         for (const path of [join(dir, 'plain'), join(dir, 'missing')]) {
             expect(resolve({ command: path }, { PATH: dir })).toStrictEqual({
                 available: false,
-                reason: `${path} (harnesses.kimi.command) not found or not executable`,
+                reason: `${path} (custom_harnesses.kimi.command) not found or not executable`,
             });
         }
     });
 });
 
-// Runs of a user harness `kimi` backed by the fake agent. The fake's modes are ask, auto and default; its options are
+// Runs of a custom harness `kimi` backed by the fake agent. The fake's modes are ask, auto and default; its options are
 // model (fake-small, fake-large) and effort (low, high), plus OPTIONS below.
 
 const OPTIONS = [
@@ -169,7 +169,7 @@ const input = (agent: string, extra: Record<string, unknown> = {}) => ({
     agent,
     prompt: 'do the thing',
     cwd: h.work,
-    description: 'user harness test',
+    description: 'custom harness test',
     ...extra,
 });
 
@@ -193,7 +193,7 @@ function fakeKimi(
     agentEnv: Record<string, string> = {}
 ): { ctx: RunContext; calls: () => FakeCall[]; tag: string; loaded: LoadedConfig } {
     const callLog = join(mkdtempSync(join(h.root, 'calls-')), 'calls.jsonl');
-    const { loaded, tag } = h.fakeAs('kimi', scenario, [...entry, ...top].join('\n'), {
+    const { loaded, tag } = h.fakeCustom('kimi', scenario, [...entry, ...top].join('\n'), {
         FAKE_CALL_LOG: callLog,
         FAKE_CONFIG_OPTIONS: JSON.stringify(OPTIONS),
         PROBE_ENTRY: '1',
@@ -224,7 +224,7 @@ function yaml(lines: string[]): LoadedConfig {
     return loaded;
 }
 
-describe('user harness runs (fake agent)', () => {
+describe('custom harness runs (fake agent)', () => {
     it('policy auto: launched as configured, auto_approve applied after session/new in order; recorded under its id', async () => {
         const { ctx, calls, tag } = fakeKimi('echo', AUTO_BLOCK);
         const payload = ok(await runThronglet(input('kimi/fake-small'), ctx));
@@ -247,7 +247,7 @@ describe('user harness runs (fake agent)', () => {
         const { ctx, calls } = fakeKimi('echo', ['    ask_approval: { mode: default }']);
         const payload = ok(await runThronglet(input('kimi/fake-small'), ctx));
         expect(payload.warnings).toStrictEqual([
-            'harnesses.kimi.auto_approve is not set: kimi runs in the mode it starts in, and throng refuses every permission request it makes (policy auto)',
+            'custom_harnesses.kimi.auto_approve is not set: kimi runs in the mode it starts in, and throng refuses every permission request it makes (policy auto)',
         ]);
         expect(summary(calls()).slice(1)).toStrictEqual(['set_config_option model="fake-small"', 'prompt']);
     });
@@ -313,14 +313,14 @@ describe('user harness runs (fake agent)', () => {
             ['kimi-acp', 'not found on PATH'],
             ['/nonexistent/kimi-acp', 'not found or not executable'],
         ]) {
-            const loaded = yaml(['harnesses:', '  kimi:', `    command: ${command}`]);
+            const loaded = yaml(['custom_harnesses:', '  kimi:', `    command: ${command}`]);
             const payload = failed(await runThronglet(input('kimi/k2'), h.makeCtx(loaded)), 'harness_unavailable');
-            expect(payload.message).toBe(`${command} (harnesses.kimi.command) ${where}`);
+            expect(payload.message).toBe(`${command} (custom_harnesses.kimi.command) ${where}`);
         }
     });
 
-    it('an id neither native nor configured → harness_unavailable listing the natives and the configured ids', async () => {
-        const loaded = yaml(['harnesses:', '  kimi: { command: kimi }', '  qwen.code: { command: qwen }']);
+    it('an id neither built-in nor configured → harness_unavailable listing the built-in and the configured ids', async () => {
+        const loaded = yaml(['custom_harnesses:', '  kimi: { command: kimi }', '  qwen.code: { command: qwen }']);
         const payload = failed(await runThronglet(input('glm/x:high'), h.makeCtx(loaded)), 'harness_unavailable');
         expect(payload.message).toBe(
             'Unknown harness "glm" in agent spec "glm/x:high"; valid harnesses: claude, codex, opencode, gemini, kimi, qwen.code'
@@ -389,8 +389,8 @@ describe('user harness runs (fake agent)', () => {
     });
 });
 
-describe('list_harnesses with user harnesses', () => {
-    it('a configured user harness is probed and listed under its id, after the natives', async () => {
+describe('list_harnesses with custom harnesses', () => {
+    it('a configured custom harness is probed and listed under its id, after the built-in ones', async () => {
         const { loaded, tag } = fakeKimi('echo', AUTO_BLOCK);
         const out = await listHarnesses(loaded, { handshakeMs: 5000, depth: 0, env: { PATH: bin } });
         expect(out.harnesses).toHaveLength(1);
@@ -405,31 +405,99 @@ describe('list_harnesses with user harnesses', () => {
         expect(tagAlive(tag), 'probed fake agent still running').toBe(false);
     });
 
-    it('a user harness whose command is missing is unavailable with the reason', async () => {
+    it('a custom harness whose command is missing is unavailable with the reason', async () => {
         const loaded = yaml([
-            'harnesses:',
+            'custom_harnesses:',
             '  kimi: { command: kimi-acp }',
             '  zed-agent: { command: /nonexistent/zed }',
         ]);
         const out = await listHarnesses(loaded, { handshakeMs: 5000, depth: 0, env: { PATH: bin } });
         expect(out.harnesses).toStrictEqual([]);
         expect(out.unavailable.slice(4)).toStrictEqual([
-            { harness: 'kimi', reason: 'kimi-acp (harnesses.kimi.command) not found on PATH' },
+            { harness: 'kimi', reason: 'kimi-acp (custom_harnesses.kimi.command) not found on PATH' },
             {
                 harness: 'zed-agent',
-                reason: '/nonexistent/zed (harnesses.zed-agent.command) not found or not executable',
+                reason: '/nonexistent/zed (custom_harnesses.zed-agent.command) not found or not executable',
             },
         ]);
     });
 
-    it('a config error lists only the natives as unavailable', async () => {
+    it('a config error lists only the built-in harnesses as unavailable', async () => {
         const path = join(mkdtempSync(join(h.root, 'yaml-')), 'config.yaml');
-        writeFileSync(path, 'harnesses:\n  kimi: {}\n');
+        writeFileSync(path, 'custom_harnesses:\n  kimi: {}\n');
         const loaded = loadConfig({ THRONG_MCP_CONFIG: path });
         const out = await listHarnesses(loaded, { handshakeMs: 5000, depth: 0, env: { PATH: bin } });
         expect(out.unavailable.map(u => u.harness)).toStrictEqual(['claude', 'codex', 'opencode', 'gemini']);
         expect(out.unavailable[0]?.reason).toMatch(
-            /^config error: .*harnesses\.kimi\.command: required for a user harness \(kimi is not one of the native claude, codex, opencode, gemini\)$/
+            /^config error: .*custom_harnesses\.kimi\.command: Invalid input: expected string, received undefined$/
         );
+    });
+});
+
+describe('a custom harness with a built-in id', () => {
+    // harnesses.claude points at a command that does not exist and asks for deny_all: neither may take effect.
+    const OVERRIDE = ['harnesses:', '  claude: { command: /nonexistent/claude-acp, permissions: deny_all }'];
+
+    function fakeCustomClaude(
+        scenario: FakeScenario,
+        entry: string[] = []
+    ): { ctx: RunContext; calls: () => FakeCall[]; tag: string; loaded: LoadedConfig } {
+        const callLog = join(mkdtempSync(join(h.root, 'calls-')), 'calls.jsonl');
+        const { loaded, tag } = h.fakeCustom('claude', scenario, [...entry, ...OVERRIDE].join('\n'), {
+            FAKE_CALL_LOG: callLog,
+            FAKE_CONFIG_OPTIONS: JSON.stringify(OPTIONS),
+            PROBE_ENTRY: '1',
+        });
+        return { ctx: h.makeCtx(loaded), calls: () => readFakeCalls(callLog), tag, loaded };
+    }
+
+    it('a run launches the custom command with its auto_approve; a resumed turn stays on it', async () => {
+        const { ctx, calls } = fakeCustomClaude('echo', AUTO_BLOCK);
+        const first = ok(await runThronglet(input('claude/fake-small'), ctx));
+        expect(first.warnings).toBe(undefined);
+        expect(summary(calls())).toStrictEqual([
+            'start ["--auto-flag"] {"PROBE_AUTO":"yes","PROBE_ENTRY":"1"}',
+            'set_mode auto',
+            'set_config_option brave_mode=true',
+            'set_config_option permission="bypass"',
+            'set_config_option model="fake-small"',
+            'prompt',
+        ]);
+        expect((await readSessionRecord(ctx.cacheDir, first.session_id))?.harness).toBe('claude');
+
+        ok(await sendMessage({ session_id: first.session_id, prompt: 'again' }, ctx));
+        expect(summary(calls()).slice(6, 8)).toStrictEqual([
+            'start ["--auto-flag"] {"PROBE_AUTO":"yes","PROBE_ENTRY":"1"}',
+            '^set_mode auto',
+        ]);
+    });
+
+    it('the policy comes from custom_harnesses.claude, not harnesses.claude', async () => {
+        const allow = fakeCustomClaude('permission', ['    permissions: allow_all']);
+        expect(ok(await runThronglet(input('claude/fake-small'), allow.ctx)).text).toBe('allowed');
+
+        const elicit = fakeCustomClaude('echo', ['    permissions: elicit']);
+        const payload = failed(await runThronglet(input('claude/fake-small'), elicit.ctx), 'elicitation_unsupported');
+        expect(payload.message).toContain('set custom_harnesses.claude.permissions in the throng config');
+    });
+
+    it('list_harnesses: one claude row, the custom one', async () => {
+        const { loaded, tag } = fakeCustomClaude('echo');
+        const out = await listHarnesses(loaded, { handshakeMs: 5000, depth: 0, env: { PATH: bin } });
+        expect(out.harnesses).toHaveLength(1);
+        expect(out.harnesses[0]).toMatchObject({
+            harness: 'claude',
+            command: [process.execPath, expect.stringMatching(/agent\.ts$/), `--tag=${tag}`],
+            models: ['fake-small', 'fake-large'],
+        });
+        expect(out.unavailable.map(u => u.harness)).toStrictEqual(['codex', 'opencode', 'gemini']);
+    });
+});
+
+describe('elicitation_unsupported on a custom harness', () => {
+    it('names custom_harnesses.<id>.permissions', async () => {
+        const { ctx } = fakeKimi('echo', ['    permissions: elicit']);
+        const payload = failed(await runThronglet(input('kimi/fake-small'), ctx), 'elicitation_unsupported');
+        expect(payload.message).toContain('set custom_harnesses.kimi.permissions in the throng config');
     });
 });

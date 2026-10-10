@@ -316,7 +316,7 @@ describe('runThronglet', () => {
         expect(payload.session_id).toBe(undefined);
     });
 
-    it('unknown harness: the message names it and lists the native ids; ids are case-sensitive', async () => {
+    it('unknown harness: the message names it and lists the built-in ids; ids are case-sensitive', async () => {
         const { loaded } = fakeClaude('echo');
         const nope = failed(await runThronglet(input('nope/pro'), makeCtx(loaded)), 'harness_unavailable');
         expect(nope.message).toBe(

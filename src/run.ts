@@ -26,7 +26,7 @@ import {
     type Elicitation,
     isThrongResultCall,
     type PermissionBridge,
-    resolvePolicy,
+    policySource,
 } from './permissions.ts';
 import type { Progress } from './progress.ts';
 import { buildCorrectivePrompt, buildPrompt } from './prompt.ts';
@@ -183,11 +183,8 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
                 `Unknown harness "${target.harness}" in ${where}; valid harnesses: ${harnessIds(config).join(', ')}`
             );
         }
-        const policy = resolvePolicy(config, target.harness);
+        const { policy, key } = policySource(config, target.harness);
         if (policy === 'elicit' && !ctx.elicitation) {
-            const key = config.harnesses[target.harness]?.permissions
-                ? `harnesses.${target.harness}.permissions`
-                : 'permissions';
             throw new ThrongError(
                 'elicitation_unsupported',
                 `permissions "elicit" needs an MCP client that supports elicitation, and this one does not; set ${key} in the throng config to auto, allow_all or deny_all`
