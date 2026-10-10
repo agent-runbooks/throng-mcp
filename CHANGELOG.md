@@ -1,5 +1,11 @@
 # throng-mcp
 
+## 0.5.0
+
+### Minor Changes
+
+- [#11](https://github.com/agent-runbooks/throng-mcp/pull/11) [`0efa455`](https://github.com/agent-runbooks/throng-mcp/commit/0efa455181e74770bbc8d02b60ede10eda6de173) Thanks [@Nodge](https://github.com/Nodge)! - You can now run any ACP agent, not only the built-in Claude Code, Codex, OpenCode and Gemini CLI. Add the agent to your throng config with the command that starts it, and call it like the others: `kimi/<model>`. If the agent has an auto-approve mode, name it in the config too, and throng switches to it under the default `auto` policy. See [Custom harnesses](https://github.com/agent-runbooks/throng-mcp/blob/main/docs/configuration.md#custom-harnesses).
+
 ## 0.4.0
 
 ### Minor Changes
