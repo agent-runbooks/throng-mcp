@@ -122,10 +122,21 @@ const decideAllow: Decide = request =>
 
 const ONCE_KINDS: readonly OptionKind[] = ['allow_once', 'reject_once'];
 const RAW_INPUT_LIMIT = 2048;
+const DESCRIPTION_LIMIT = 80;
+
+/**
+ * The thronglet's description as one bounded line: it comes from the calling model, and a newline in it could forge the
+ * kind and input lines the human decides by.
+ */
+function descriptionLabel(description: string): string {
+    const line = description.replace(/\s+/g, ' ').trim();
+    if (!line) return 'agent';
+    return line.length > DESCRIPTION_LIMIT ? `${line.slice(0, DESCRIPTION_LIMIT)}…` : line;
+}
 
 /** The elicitation's text (DESIGN §5): title, then kind, rawInput (truncated) and locations when present. */
 function elicitationMessage(toolCall: RequestPermissionRequest['toolCall'], description: string): string {
-    const lines = [`[${description || 'agent'}] ${toolCall.title ?? toolCall.toolCallId}`];
+    const lines = [`[${descriptionLabel(description)}] ${toolCall.title ?? toolCall.toolCallId}`];
     if (toolCall.kind) lines.push(`kind: ${toolCall.kind}`);
     if (toolCall.rawInput !== undefined) {
         const json = JSON.stringify(toolCall.rawInput);
@@ -194,17 +205,17 @@ export function elicits(answers: PermissionAnswers, elicitation: Elicitation | u
  * `cancelled`; run.ts refuses that combination before spawn (`elicitation_unsupported`).
  */
 export function deciderFor(answers: PermissionAnswers, opts: DeciderOptions): Decide {
+    if (opts.elicitation && elicits(answers, opts.elicitation)) {
+        return decideByElicitation(opts.elicitation, opts.elicitationTimeoutMs, opts.description ?? '');
+    }
     switch (answers) {
-        case 'deny':
-            return decideReject;
         case 'allow':
             return decideAllow;
-        case 'auto':
         case 'elicit':
-            if (opts.elicitation) {
-                return decideByElicitation(opts.elicitation, opts.elicitationTimeoutMs, opts.description ?? '');
-            }
-            return answers === 'auto' ? decideReject : () => Promise.resolve(CANCELLED);
+            return () => Promise.resolve(CANCELLED);
+        case 'auto':
+        case 'deny':
+            return decideReject;
     }
 }
 

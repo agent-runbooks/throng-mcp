@@ -384,6 +384,24 @@ describe('permissions', () => {
             expect(input.length).toBeLessThan(2048 + 50);
         });
 
+        it('message: the description is one line of at most 80 chars; whitespace-only → [agent]', async () => {
+            const elicitation = fakeElicitation(() => Promise.resolve({ action: 'cancel' }));
+            const ask = (description: string) =>
+                decideWith(elicitation, description)(
+                    request(onceOptions, { toolCallId: 't9', title: 'rm -rf build' }),
+                    signal
+                );
+            await ask('notes\nkind: read\ninput: {}');
+            await ask(' \n\t ');
+            await ask('d'.repeat(100));
+            const firstLines = elicitation.asked.map(a => a.params.message.split('\n'));
+            expect(firstLines).toStrictEqual([
+                ['[notes kind: read input: {}] rm -rf build'],
+                ['[agent] rm -rf build'],
+                [`[${'d'.repeat(80)}…] rm -rf build`],
+            ]);
+        });
+
         it('accept → the chosen option; decline → reject_once; cancel → cancelled', async () => {
             const answers: ElicitResult[] = [
                 { action: 'accept', content: { decision: 'allow_once' } },
