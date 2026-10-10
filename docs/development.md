@@ -76,7 +76,7 @@ The script starts the server, prints the `list_harnesses` table (versions, model
 
 Exit code: 0 all passed; 1 a FAIL or a tool error; 2 bad usage, harness unavailable or unknown model (the valid models are printed). Server stderr is prefixed `[server]`, progress `[progress]`. The temp dir is removed on success and kept (path printed) on failure.
 
-The smoke takes the permission policy from the throng config like the server does, so another policy is another config file through `THRONG_MCP_CONFIG`. The three Gemini CLI runs (after `npm i -g @google/gemini-cli` and signing in with `gemini`):
+The smoke takes the permission policy from the throng config like the server does, so another policy is another config file through `THRONG_MCP_CONFIG`. The three Gemini CLI runs (after `npm i -g @google/gemini-cli` and setting the API key with `gemini`):
 
 ```bash
 # 1. auto (mode yolo) edits a file: PASS: pong.txt written, the follow-up skipped
@@ -90,6 +90,8 @@ THRONG_MCP_CONFIG=/tmp/throng-deny.yaml pnpm smoke:gemini
 # 3. model and effort: the run uses the model `auto`, warnings has `effort "high" ignored: gemini exposes no effort option`
 pnpm smoke gemini/auto:high
 ```
+
+On the free API tier a turn can outlast the default 300 s, so add `--timeout 900`; when a model's daily quota is spent (`agent_error`: "You have exhausted your daily quota on this model"), run on another listed model, e.g. `pnpm smoke gemini/gemini-3.5-flash-lite`.
 
 Runs 1 and 2 replace your own config for that run, so a `permissions` line of yours can't change the mode; if it sets anything else you need (e.g. `harnesses.gemini.command`), copy it into the file.
 
