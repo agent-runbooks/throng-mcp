@@ -122,7 +122,7 @@ Both are a single JSON text block in `content[0].text`; no `structuredContent`, 
 type ErrorCode =
   | 'harness_unavailable'    // unknown harness, adapter command not found (for a built-in harness the message carries the install command, §4.1), or a config error (message starts with `config error:`); checked before spawn
   | 'depth_exceeded'         // §7
-  | 'elicitation_unsupported'// policy 'elicit' configured but the client lacks the capability; before spawn
+  | 'elicitation_unsupported'// permission_answers 'elicit' configured but the client lacks the capability; before spawn
   | 'session_not_found'      // send_message / wait / cancel: unknown id, or the harness lacks sessionCapabilities.resume
   | 'spawn_failed'           // the adapter process could not start, or cwd is not a directory
   | 'handshake_timeout'      // initialize + session setup exceeded limits.handshake_s (§4.2)
@@ -266,7 +266,7 @@ src/
     collector.ts            — fold session/update → text, usage, warnings
   sessions.ts               — session records on disk (§8)
   registry.ts               — live sessions of this process: state, queue, running turn, waiters (§3.3, §3.6)
-  permissions.ts            — policy → answer to request_permission; bridge to MCP elicitation
+  permissions.ts            — harness_mode and permission_answers from config; answers to request_permission; bridge to MCP elicitation
   structured/
     submit-tool.ts          — stdio MCP server spawned by the harness: submit_result → ajv → result file
     validate.ts             — ajv
@@ -296,10 +296,10 @@ throng-mcp ships no adapters and no harnesses (decision-3). The user installs bo
 | harness on PATH | `claude` → `CLAUDE_CODE_EXECUTABLE` | `codex` → `CODEX_PATH` | same binary | same binary |
 | model | option category `model` | option category `model` | option category `model` | `models` list + `session/set_model` |
 | effort | option `thought_level`; exact | `thought_level`; `max → xhigh` | `thought_level` if present; otherwise warning | none; always a warning |
-| `auto` | mode `auto` | mode `agent` | opencode.json defaults | mode `yolo` |
-| `allow_all` / `deny_all` / `elicit` | mode `default` | mode `read-only` (asks the client) | `OPENCODE_CONFIG_CONTENT={"permission":"ask"}` | mode `default` |
+| `harness_mode: auto` | mode `auto` | mode `agent` | opencode.json defaults | mode `yolo` |
+| `harness_mode: ask` | mode `default` | mode `read-only` (asks the client) | `OPENCODE_CONFIG_CONTENT={"permission":"ask"}` | mode `default` |
 
-Gemini runs with `GEMINI_CLI_TRUST_WORKSPACE=true` under every policy, not only `auto`: without it the folder is untrusted, `yolo` is refused and the `submit_result` server (§6) never starts. The caller chose `cwd`, and nobody is there to answer a trust dialog.
+Gemini runs with `GEMINI_CLI_TRUST_WORKSPACE=true` under both harness modes, not only `auto`: without it the folder is untrusted, `yolo` is refused and the `submit_result` server (§6) never starts. The caller chose `cwd`, and nobody is there to answer a trust dialog.
 
 Availability is decided by the adapter command only. Adapter not on PATH → `unavailable` with `reason` = `<command> not found on PATH; install: <hint>`, and `run_thronglet` fails with `harness_unavailable` and the same text before spawn. The harness binary is optional: when `claude`/`codex` is on PATH, its absolute path goes into `CLAUDE_CODE_EXECUTABLE`/`CODEX_PATH` (unless config sets them), so the adapter runs the user's installed and logged-in harness; otherwise the adapter falls back to its bundled platform package, and if that is missing too, the probe fails at handshake and the adapter's error lands in `reason`. Everything past "the command exists" is checked by the probe (§3.4), not by guessing.
 
@@ -315,26 +315,26 @@ interface HarnessDefinition {                 // src/harnesses/types.ts
   registryId?: string;                        // built-ins: where the install hint comes from
   resolve(config, registry, env?): { available: true; launch: { command; args; env } } | { available: false; reason: string };
   mapEffort(level: Effort, options: string[]): string | undefined;   // our level → option value; undefined = not applicable → warning
-  permissionSetup(policy): {
+  permissionSetup(mode: 'auto' | 'ask'): {                            // harness_mode only; the answers are throng's (§5)
     modeId?: string;
     env?: Record<string,string>;
     newSessionMeta?: object;
     configOptions?: Array<{ id: string; value: string | boolean }>;   // session/set_config_option by id, after the mode
     args?: string[];                                                   // appended to the launch args
-    warning?: string;                                                  // the policy has no native setup; goes into the result's warnings
+    warning?: string;                                                  // the mode has no native setup; goes into the result's warnings
   };
   preTurnNoise?: RegExp[];   // agent messages outside a turn that are routine for the harness: dropped, not warnings (§4.3)
 }
 ```
 
-`permissionSetup` covers the ways agents switch approval: a session mode, env of the adapter process, `session/new._meta`, a config option (`allow_all=on`, `brave_mode=true`) and a launch flag. The mode is strict: failing to set it fails the run. `configOptions` are best effort: an option the agent does not advertise, or one it rejects, becomes a warning and the turn runs in whatever asking mode the agent is in, where the server's answers (§5) still hold the policy. `args` and `env` apply to the processes of a run; the `list_harnesses` probe has no policy and launches without them.
+`permissionSetup` covers the ways agents switch approval: a session mode, env of the adapter process, `session/new._meta`, a config option (`allow_all=on`, `brave_mode=true`) and a launch flag. The mode is strict: failing to set it fails the run. `configOptions` are best effort: an option the agent does not advertise, or one it rejects, becomes a warning and the turn runs in whatever asking mode the agent is in, where the server's answers (§5) still apply. `args` and `env` apply to the processes of a run; the `list_harnesses` probe has no harness mode and launches without them.
 
 Model is set strictly: the value must be in `options` of the matching config option, otherwise `model_rejected` with the list. An agent without a `model` config option that lists models in the session's unstable `models` field (Gemini CLI) is checked against that list the same way and set with `session/set_model`; the config option wins when both exist. Effort: `mapEffort` picks the option value; `undefined` → `warnings`, not an error.
 
 **Custom harnesses** (decision-8). Any other ACP agent is described by the user in the config (§8): a `custom_harnesses.<id>` entry defines a harness with that id. Nothing about it is inferred, the ACP registry included: the entry is the whole definition, built as a `HarnessDefinition` from config data. `custom_harnesses` is a section of its own, apart from the built-in overrides in `harnesses`, so a built-in harness added later never changes the meaning of an existing config: a custom id equal to a built-in one wins, the built-in harness is unreachable under that id, and the server logs one line at start saying so.
 
 - Launch: `command` (required: a name looked up on PATH, or a path), `args`, `env`. Command not found → `unavailable` / `harness_unavailable` with `<command> (custom_harnesses.<id>.command) not found on PATH` (or `not found or not executable` for a path), no install hint.
-- `permissionSetup`: policy `auto` takes the entry's `auto_approve`, the other three take `ask_approval`. Each block has `mode` → `modeId`, `config_options` (`{ <option id>: <value> }`) → `configOptions`, `args`, `env`. An absent block is an empty setup: the agent stays in the mode it starts in. For `auto` that also sets `warning` ("custom_harnesses.<id>.auto_approve is not set: …"), since the server then refuses every permission request the agent makes (§5).
+- `permissionSetup`: harness mode `auto` takes the entry's `auto_mode`, `ask` takes `ask_mode`. Each block has `mode` → `modeId`, `config_options` (`{ <option id>: <value> }`) → `configOptions`, `args`, `env`. An absent block is an empty setup: the agent stays in the mode it starts in. For `auto` that also sets `warning` ("custom_harnesses.<id>.auto_mode is not set: <id> runs in the mode it starts in"): the agent may ask about everything, and `permission_answers` (§5) decide each request.
 - `mapEffort`: the level itself when the `thought_level` option offers exactly that value, otherwise `undefined` (warning). Model as for built-in harnesses.
 - No `newSessionMeta`, no `preTurnNoise`: an agent that needs them, or anything else not expressible as data, gets a built-in definition.
 
@@ -346,7 +346,7 @@ Sequence:
 1. `spawn` (detached, own group, `stdio: [pipe, pipe, pipe]`, stderr → 64 KB ring buffer for error messages). `THRONG_MCP_DEPTH = depth + 1` in the child env.
 2. `connectWith(ndJsonStream)`, `initialize` (`clientCapabilities: { fs: {readTextFile:false, writeTextFile:false}, terminal:false }`).
 3. `session/new { cwd, mcpServers }` (+ `_meta` from the harness), or `session/resume { sessionId, cwd, mcpServers }` for every later turn (requires `sessionCapabilities.resume`; unknown id → `session_not_found`). Steps 1–3 run under the handshake timeout (60 s) → `handshake_timeout`.
-4. Mode (`setSessionMode`), the policy's config options (§4.1), model, effort via `setSessionConfigOption` (model via `session/set_model` for an agent that only has the `models` list). Runs after `session/resume` as well: a fresh adapter process starts in its defaults.
+4. Mode (`setSessionMode`), the harness mode's config options (§4.1), model, effort via `setSessionConfigOption` (model via `session/set_model` for an agent that only has the `models` list). Runs after `session/resume` as well: a fresh adapter process starts in its defaults.
 5. `prompt` → `nextUpdate()` loop until `stop`. Every event → collector + progress.
 6. Structured-output re-prompts (§6): step 5 again.
 7. `close()`: close stdin, wait 5 s for exit, then `SIGTERM` to the group, 5 s more → `SIGKILL`; finish off the descendant snapshot (`pgrep -P`, recursive, taken before close).
@@ -370,32 +370,49 @@ From the `session/update` stream:
 
 ## 5. Permissions
 
-The policy comes from config only (§8): a global default and optional per-harness overrides. It is deliberately not a tool parameter, so the calling model can't grant itself more than the config allows. Default `auto`. The answer to `request_permission` is an option chosen by `kind`:
+Two settings, from config only (§8): globally, and per harness under `harnesses.<id>` or `custom_harnesses.<id>`. They are deliberately not tool parameters, so the calling model can't grant itself more than the config allows (decision-9).
 
-| policy | native mode | server answer |
+- `harness_mode: auto | ask`, default `auto`: the mode throng puts the harness in (§4.1). `auto` is the harness's own auto-approve mode, which decides most actions itself; `ask` is its asking mode, which sends edits, shell and MCP tools to `request_permission`.
+- `permission_answers: auto | allow | deny | elicit`, default `deny`: how throng answers `request_permission`, with an option chosen by `kind`.
+
+| `permission_answers` | server answer |
+|---|---|
+| `deny` | `reject_once`; if absent, `cancelled` |
+| `allow` | `allow_once`; if absent, `reject_once`, else `cancelled` |
+| `elicit` | per the user's answer (below); without client support, `elicitation_unsupported` before spawn |
+| `auto` | as `elicit` when the client supports form elicitation, otherwise as `deny` |
+
+The two keys combine freely. A per-harness value overrides the global one key by key, the per-harness entry being the custom harness's when one exists, else the built-in override. Example: global `permission_answers: elicit` and `harnesses.codex.harness_mode: ask` run codex in ask + elicit and every other harness in auto + elicit.
+
+The defaults, auto + deny, trust the harness's own auto mode and nothing more: what that mode does not approve on its own is refused. Answering `allow_once` there would widen the default whenever a harness asks a lot (Claude's `acceptEdits` fallback, Codex's "potentially unsafe" checks). `harness_mode: auto` with `permission_answers: allow` is effectively bypass: the harness approves what it can and throng approves the rest. It is allowed, since only the config can set it.
+
+`permissions: auto | allow_all | deny_all | elicit` is a shorthand for a pair, accepted at the same three places:
+
+| `permissions` | `harness_mode` | `permission_answers` |
 |---|---|---|
-| `auto` | the harness's auto mode (§4.1) | `reject_once`; if absent, `cancelled` (decision-4) |
-| `allow_all` | asking mode | `allow_once` |
-| `deny_all` | asking mode | `reject_once`; if absent, `cancelled` |
-| `elicit` | asking mode | per the user's answer |
+| `auto` | `auto` | `deny` |
+| `allow_all` | `ask` | `allow` |
+| `deny_all` | `ask` | `deny` |
+| `elicit` | `ask` | `elicit` |
 
-A `request_permission` for throng's own `submit_result` (§6) is answered `allow_once` under every policy, before the policy applies.
+At one place, `permissions` next to `harness_mode` or `permission_answers` is a config error (`harnesses.codex: permissions is a shorthand for harness_mode and permission_answers; set either permissions or those two`). The shorthand expands before the per-key resolution, so a place with `permissions` sets both keys there.
+
+A `request_permission` for throng's own `submit_result` (§6) is answered `allow_once` under every setting, before the answers apply.
 
 Always `*_once`, never `allow_always`: Claude's `allow-with-updates` writes a rule into the project settings.
 
-`auto` trusts the harness's own auto mode and nothing more: what that mode does not approve on its own is refused by the server. Answering `allow_once` there would turn `auto` into `allow_all` whenever a harness asks a lot (Claude's `acceptEdits` fallback, Codex's "potentially unsafe" checks).
-
-`elicit`:
-- At call start check `server.getClientCapabilities()?.elicitation?.form` (the SDK normalizes an empty `elicitation: {}` into `{form: {}}`; a URL-only client would fail every ask): missing → tool error `elicitation_unsupported`, no spawn. Checked per call, not at registration: capabilities arrive with initialize.
-- `elicitInput` in form mode: `message` = `[agent] <toolCall.title>` + kind + `rawInput` (JSON, truncated to 2 KB) + locations; field `decision` is a titled `oneOf` of the kinds present in `options`. Not `enumNames` (deprecated).
+Elicitation (`elicit`, and `auto` with a capable client):
+- At call start check `server.getClientCapabilities()?.elicitation?.form` (the SDK normalizes an empty `elicitation: {}` into `{form: {}}`; a URL-only client would fail every ask). Checked per call, not at registration: capabilities arrive with initialize. Missing under `elicit` → tool error `elicitation_unsupported`, no spawn; the message names the config key the value came from (`permission_answers`, `harnesses.<id>.permission_answers`, or a `permissions` key for the shorthand) and the values to use instead. Missing under `auto` → answered as `deny`, no warning on the result, one `log.info` line per call in the server log.
+- `elicitInput` in form mode: `message` = `[<description>] <toolCall.title>` + kind + `rawInput` (JSON, truncated to 2 KB) + locations, where `<description>` is the thronglet's description (`run_thronglet`'s, or the session record's for `send_message`; `agent` when empty); field `decision` is a titled `oneOf` of the kinds present in `options`. Not `enumNames` (deprecated).
 - `accept` → the chosen optionId; `decline` → `reject_once` (or `cancelled`); `cancel` → `cancelled`.
-- Wait timeout 10 min → `cancelled` (the agent gets a rejection, the call continues).
-- While an elicitation is pending Claude Code doesn't background the call; that's its behavior, nothing for us to do.
+- Wait timeout 10 min (`limits.elicitation_s`) → `cancelled` (the agent gets a rejection, the call continues). A pending dialog holds the turn until then.
+- While an elicitation is pending Claude Code doesn't background the call; that's its behavior, nothing for us to do. Dialogs can come from background and parallel thronglets; the description in the message tells them apart.
+- A nested throng server (§7) has no elicitation: there `auto` answers as `deny` and an explicit `elicit` fails.
 
 ## 6. Structured output
 
 One mechanism for all harnesses, transport-independent, no network:
-- With `schema` the server writes the schema to a per-run temp dir (`$TMPDIR/throng-*`) and injects a stdio MCP server into `session/new.mcpServers` (or `session/resume.mcpServers`): `{ name:'throng_result', command:<absolute path of the node executable>, args:[<RunContext.submitTool>, '--schema', <path>, '--out', <path>], env:[] }` (`submitTool` is `src/structured/submit-tool.ts` on the sources, `dist/structured/submit-tool.js` in the package, §9; no `type` field: claude-agent-acp quirk; an absolute `command` because ACP wants one and codex gives MCP servers a whitelisted env). The harness spawns it itself; it exposes one tool, `submit_result({ result })`. A `request_permission` for it is answered `allow_once` under every policy (§5).
+- With `schema` the server writes the schema to a per-run temp dir (`$TMPDIR/throng-*`) and injects a stdio MCP server into `session/new.mcpServers` (or `session/resume.mcpServers`): `{ name:'throng_result', command:<absolute path of the node executable>, args:[<RunContext.submitTool>, '--schema', <path>, '--out', <path>], env:[] }` (`submitTool` is `src/structured/submit-tool.ts` on the sources, `dist/structured/submit-tool.js` in the package, §9; no `type` field: claude-agent-acp quirk; an absolute `command` because ACP wants one and codex gives MCP servers a whitelisted env). The harness spawns it itself; it exposes one tool, `submit_result({ result })`. A `request_permission` for it is answered `allow_once` under every permission setting (§5).
 - The schema is the tool's `inputSchema`: wrapped as `{ type:'object', properties:{ result:<schema> }, required:['result'] }`, the schema's `$defs` / `definitions` hoisted to the wrapper root so local refs resolve, `$schema` dropped. The SDK doesn't check the arguments; submit-tool validates them itself. The prompt only gets an instruction: finish by calling `submit_result`, whose input schema describes `result`.
 - `submit_result` validates with ajv: the engine follows `$schema` (`Ajv2020` for 2020-12, draft-07 `Ajv` otherwise, also when `$schema` is absent), since the dialects differ in keyword semantics (`items` tuples vs `prefixItems`); `allErrors`, non-strict, formats not checked. Every call writes the `--out` file (last write wins): `{ ok:true, result }` with response "accepted", or `{ ok:false, errors }` with an `isError` response carrying the ajv errors, so the agent fixes it within the same turn. After `stop` the server reads the file: no file means not submitted.
 - After a turn that ends with `end_turn`, `max_tokens` or `max_turn_requests` and no valid result: corrective re-prompt ("you didn't call submit_result" / "your last call was rejected: <errors>"), at most 2. Then tool error `structured_missing` (no file) or `structured_invalid` (last call rejected; message carries the ajv errors) with `text` (the last turn's, or the latest non-empty one) and `session_id` in the payload, so the caller sees what the agent said and can resume. `refusal` / `cancelled` fail as without a schema.
@@ -414,14 +431,17 @@ One mechanism for all harnesses, transport-independent, no network:
 
 `~/.config/throng/config.yaml` (optional, path via `THRONG_MCP_CONFIG`). Session records live under `~/.cache/throng` (path via `THRONG_MCP_CACHE_DIR`). All env vars of the server use the `THRONG_MCP_` prefix.
 ```yaml
-permissions: auto            # auto | allow_all | deny_all | elicit; global default
+harness_mode: auto           # auto | ask; global default
+permission_answers: deny     # auto | allow | deny | elicit; global default
+# permissions: auto          # shorthand for the pair above: auto | allow_all | deny_all | elicit (§5)
 harnesses:
   opencode:
     command: /opt/opencode
     args: [acp]
     env: { X: "1" }
   codex:
-    permissions: allow_all   # per-harness override
+    harness_mode: ask        # per-harness override, key by key
+    permission_answers: elicit
   claude:
     env: { ANTHROPIC_BASE_URL: "..." }
 custom_harnesses:            # §4.1; ids are letters, digits, ".", "_", "-"
@@ -429,13 +449,13 @@ custom_harnesses:            # §4.1; ids are letters, digits, ".", "_", "-"
     command: kimi            # required
     args: [acp]
     env: { X: "1" }
-    permissions: allow_all
-    auto_approve:            # policy auto
+    permissions: allow_all   # the shorthand works per harness too
+    auto_mode:               # harness_mode auto
       mode: yolo
       config_options: { permission: bypass }
       args: []
       env: {}
-    ask_approval:            # allow_all, deny_all, elicit; same keys
+    ask_mode:                # harness_mode ask; same keys
       mode: default
 limits:
   timeout_s: 21600
@@ -444,7 +464,7 @@ limits:
   max_concurrency: 10
   max_depth: 2
 ```
-Config validation with zod; an error goes to stderr at server start and into `list_harnesses.reason`. `harnesses` takes only the built-in ids. A custom harness entry without `command`, or an id outside letters, digits, `.`, `_`, `-`, is a config error.
+Config validation with zod; an error goes to stderr at server start and into `list_harnesses.reason`. `harnesses` takes only the built-in ids. `permissions` next to `harness_mode` or `permission_answers` at the same place is a config error (§5). A custom harness entry without `command`, or an id outside letters, digits, `.`, `_`, `-`, is a config error.
 
 Session records: `~/.cache/throng/sessions/<session_id>.json` = `{ harness, model, effort, cwd, description, created_at, last_used_at, resumable?, turn_started_at?, turn_pid?, last_result? | last_error? }`, keyed by the harness's own ACP session id (UUID-like in all three; collisions across harnesses are not a practical concern). Written when the ACP session exists, updated on every turn: `turn_started_at` and `turn_pid` (the server process running the turn) are set while a turn runs and cleared with the turn's `last_result` (the success payload) or `last_error` (the failure payload). Only the turn that holds the session lock writes these fields: a call that fails before taking the lock (guards, a cancel while queued) returns its error to the caller and leaves the record alone. `resumable` is written once, with the record: whether the adapter advertised `sessionCapabilities.resume` in the handshake of the turn that created the session. A record without it (written by an earlier version) is treated as resumable until the handshake says otherwise.
 
@@ -459,7 +479,7 @@ Logs: server stderr has short lines (worker start/stop, errors, every permission
 - Published as a tsdown bundle (`tsdown.config.ts`), since Node refuses to strip types under `node_modules`: two ESM entries for Node 22, `dist/mcp.js` (the bin) and `dist/structured/submit-tool.js` (spawned for `schema` runs). The bundle is self-contained: tsdown bundles `devDependencies`, which hold every runtime library, and a rolldown plugin (`scripts/build/third-party-licenses.ts`) writes `dist/THIRD_PARTY_LICENSES.md` with the name, version, license and license text of every package with code in the bundle. `src/mcp.ts` computes the submit tool's path from its own `import.meta.url` (`.ts` next to the sources, `.js` in `dist/`) and passes it down to `RunContext.submitTool`: inside the bundle only the entry's `import.meta.url` is reliable. `package.json` (the version) and `data/registry.json` are JSON imports, inlined into the bundle, so `data/` is not shipped. `dist/` is ignored by git, prettier and eslint.
 - Scripts: `pnpm build` (`tsdown`; also `prepack`), `pnpm typecheck` (`tsc --noEmit`), `pnpm test` (`vitest --run`; `pnpm test:watch` for watch mode), `pnpm lint` (`eslint .`), `pnpm fmt` (`prettier --write`), `pnpm smoke:<harness>`. The `ci:*` variants are what GitHub Actions runs (`.github/workflows/ci.yml`: lint, typecheck, prettier check, `ci:build`, tests on Node 22, 24 and 26, `ci:changesets` = `changeset status --since=origin/main`). Releases: `pnpm changeset` (`changeset add`); `.github/workflows/release.yml` on push to main runs `ci:version` (`changeset version`) or `ci:publish` (`ci:build` + `changeset publish`) through `changesets/action`. The lefthook pre-commit hook runs fmt, lint --fix and typecheck.
 - `scripts/pack.test.ts` (part of `pnpm test`) checks the package as npm ships it: `pnpm pack` into a temp dir, the tarball holds only `dist/`, `skills/`, `docs/`, README, LICENSE and `package.json`; its `package.json` has no `dependencies` or `peerDependencies`, `dist/THIRD_PARTY_LICENSES.md` is there and names `@modelcontextprotocol/sdk` and `zod`, `dist/` is under 2 MB; unpacked, with no `node_modules` at all, `node dist/mcp.js` answers `list_harnesses` and a `run_thronglet` with a `schema` on the fake agent.
-- Tests without an LLM: `test/fake-agent` is an ACP agent on the agent-side SDK, scenarios via env (`FAKE_SCENARIO=echo|permission|submit-valid|submit-invalid-then-valid|resume|hang|crash-on-prompt|notice`). They cover Worker, collector, permissions (all 4 policies; elicit through a fake MCP client with the capability), structured (both re-prompt branches), resume, timeouts, cancel, tree kill (fake-agent spawns a grandchild `sleep`; after close it's gone), depth, semaphore, agent-spec parsing.
+- Tests without an LLM: `test/fake-agent` is an ACP agent on the agent-side SDK, scenarios via env (`FAKE_SCENARIO=echo|permission|submit-valid|submit-invalid-then-valid|resume|hang|crash-on-prompt|notice`). They cover Worker, collector, permissions (all 8 harness_mode × permission_answers combinations, the `permissions` shorthand; elicit and auto through a fake MCP client with and without the capability), structured (both re-prompt branches), resume, timeouts, cancel, tree kill (fake-agent spawns a grandchild `sleep`; after close it's gone), depth, semaphore, agent-spec parsing.
 - Smoke on real harnesses (manual, one at a time; commands in [development.md](development.md#smoke), per-stage lists in the backlog tasks): claude/codex/opencode × `auto`, opencode with a custom provider, Esc → no orphans, a call > 2 min from the main session goes to the background; v2 adds codex+schema, resume with a follow-up question, elicit from an interactive session.
 
 ## 10. Stages

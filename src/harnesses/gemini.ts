@@ -16,9 +16,9 @@ export const gemini: HarnessDefinition = {
     resolve: (config, registry, env) => resolveAdapter(spec, config, registry, env),
     // Gemini CLI exposes no thought_level option (DESIGN §2.3).
     mapEffort: () => undefined,
-    // Trust under every policy: an untrusted folder refuses `yolo` and starts no MCP servers, throng's submit_result included.
-    permissionSetup: policy => ({
-        modeId: policy === 'auto' ? 'yolo' : 'default',
+    // Trust under both modes: an untrusted folder refuses `yolo` and starts no MCP servers, throng's submit_result included.
+    permissionSetup: mode => ({
+        modeId: mode === 'auto' ? 'yolo' : 'default',
         env: { GEMINI_CLI_TRUST_WORKSPACE: 'true' },
     }),
     // Gemini CLI echoes every set_mode as agent text.

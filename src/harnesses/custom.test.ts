@@ -27,7 +27,7 @@ afterAll(() => h.cleanup());
 const registry = loadRegistry();
 const bin = join(h.root, 'bin');
 
-const AUTO_APPROVE = {
+const AUTO_MODE = {
     mode: 'yolo',
     config_options: { permission: 'bypass', brave_mode: true },
     args: ['--yolo'],
@@ -37,8 +37,8 @@ const AUTO_APPROVE = {
 const kimi = (entry: Partial<CustomHarnessEntry> = {}) => customHarness('kimi', { command: 'kimi', ...entry });
 
 describe('customHarness: permissionSetup', () => {
-    it('auto takes auto_approve, the other policies ask_approval', () => {
-        const def = kimi({ auto_approve: AUTO_APPROVE, ask_approval: { mode: 'default', args: ['--ask'] } });
+    it('auto takes auto_mode, ask takes ask_mode', () => {
+        const def = kimi({ auto_mode: AUTO_MODE, ask_mode: { mode: 'default', args: ['--ask'] } });
         expect(def.permissionSetup('auto')).toStrictEqual({
             modeId: 'yolo',
             configOptions: [
@@ -48,32 +48,30 @@ describe('customHarness: permissionSetup', () => {
             args: ['--yolo'],
             env: { KIMI_YOLO: '1' },
         });
-        for (const policy of ['allow_all', 'deny_all', 'elicit'] as const)
-            expect(def.permissionSetup(policy), policy).toStrictEqual({ modeId: 'default', args: ['--ask'] });
+        expect(def.permissionSetup('ask')).toStrictEqual({ modeId: 'default', args: ['--ask'] });
     });
 
-    it('auto without auto_approve: no setup, a warning naming the key', () => {
-        const setup = kimi({ ask_approval: { mode: 'default' } }).permissionSetup('auto');
+    it('auto without auto_mode: no setup, a warning naming the key', () => {
+        const setup = kimi({ ask_mode: { mode: 'default' } }).permissionSetup('auto');
         expect(setup).toStrictEqual({
-            warning:
-                'custom_harnesses.kimi.auto_approve is not set: kimi runs in the mode it starts in, and throng refuses every permission request it makes (policy auto)',
+            warning: 'custom_harnesses.kimi.auto_mode is not set: kimi runs in the mode it starts in',
         });
     });
 
-    it('an absent ask_approval is an empty setup; an empty auto_approve too, without a warning', () => {
-        const def = kimi({ auto_approve: {} });
+    it('an absent ask_mode is an empty setup; an empty auto_mode too, without a warning', () => {
+        const def = kimi({ auto_mode: {} });
         expect(def.permissionSetup('auto')).toStrictEqual({});
-        for (const policy of ['allow_all', 'deny_all', 'elicit'] as const)
-            expect(def.permissionSetup(policy), policy).toStrictEqual({});
+        expect(def.permissionSetup('ask')).toStrictEqual({});
+        expect(kimi().permissionSetup('ask')).toStrictEqual({});
     });
 
     it('config_options keep the order they are written in', () => {
-        const def = kimi({ auto_approve: { config_options: { zeta: 'on', alpha: false, mid: 'x' } } });
+        const def = kimi({ auto_mode: { config_options: { zeta: 'on', alpha: false, mid: 'x' } } });
         expect(def.permissionSetup('auto').configOptions?.map(o => o.id)).toStrictEqual(['zeta', 'alpha', 'mid']);
     });
 
     it('no registryId, preTurnNoise or newSessionMeta', () => {
-        const def = kimi({ auto_approve: AUTO_APPROVE });
+        const def = kimi({ auto_mode: AUTO_MODE });
         expect(def.id).toBe('kimi');
         expect(def.registryId).toBe(undefined);
         expect(def.preTurnNoise).toBe(undefined);
@@ -107,7 +105,7 @@ describe('customHarness: resolve', () => {
     it('a name found on PATH: its absolute path, the entry args and env, nothing else', () => {
         const dir = dirWith([{ name: 'kimi', mode: 0o755 }]);
         expect(
-            resolve({ command: 'kimi', args: ['acp'], env: { X: '1' }, auto_approve: AUTO_APPROVE }, { PATH: dir })
+            resolve({ command: 'kimi', args: ['acp'], env: { X: '1' }, auto_mode: AUTO_MODE }, { PATH: dir })
         ).toStrictEqual({ available: true, launch: { command: join(dir, 'kimi'), args: ['acp'], env: { X: '1' } } });
         expect(resolve({ command: 'kimi' }, { PATH: dir })).toStrictEqual({
             available: true,
@@ -158,7 +156,7 @@ const OPTIONS = [
 ];
 
 const AUTO_BLOCK = [
-    '    auto_approve:',
+    '    auto_mode:',
     '      mode: auto',
     '      config_options: { brave_mode: true, permission: bypass }',
     '      args: ["--auto-flag"]',
@@ -225,7 +223,7 @@ function yaml(lines: string[]): LoadedConfig {
 }
 
 describe('custom harness runs (fake agent)', () => {
-    it('policy auto: launched as configured, auto_approve applied after session/new in order; recorded under its id', async () => {
+    it('harness_mode auto: launched as configured, auto_mode applied after session/new in order; recorded under its id', async () => {
         const { ctx, calls, tag } = fakeKimi('echo', AUTO_BLOCK);
         const payload = ok(await runThronglet(input('kimi/fake-small'), ctx));
         expect(payload.text).toMatch(/^echo: /);
@@ -243,26 +241,52 @@ describe('custom harness runs (fake agent)', () => {
         expect(tagAlive(tag)).toBe(false);
     });
 
-    it('policy auto without auto_approve: the starting mode and a warning naming the key', async () => {
-        const { ctx, calls } = fakeKimi('echo', ['    ask_approval: { mode: default }']);
+    it('harness_mode auto without auto_mode: the starting mode and a warning naming the key', async () => {
+        const { ctx, calls } = fakeKimi('echo', ['    ask_mode: { mode: default }']);
         const payload = ok(await runThronglet(input('kimi/fake-small'), ctx));
         expect(payload.warnings).toStrictEqual([
-            'custom_harnesses.kimi.auto_approve is not set: kimi runs in the mode it starts in, and throng refuses every permission request it makes (policy auto)',
+            'custom_harnesses.kimi.auto_mode is not set: kimi runs in the mode it starts in',
         ]);
         expect(summary(calls()).slice(1)).toStrictEqual(['set_config_option model="fake-small"', 'prompt']);
     });
 
-    it('policy auto without auto_approve: a permission request is still refused (§5)', async () => {
+    it('harness_mode ask without ask_mode: the starting mode, no warning', async () => {
+        const { ctx, calls } = fakeKimi('echo', [...AUTO_BLOCK, '    harness_mode: ask']);
+        const payload = ok(await runThronglet(input('kimi/fake-small'), ctx));
+        expect(payload.warnings).toBe(undefined);
+        expect(summary(calls())).toStrictEqual([
+            'start [] {"PROBE_ENTRY":"1"}',
+            'set_config_option model="fake-small"',
+            'prompt',
+        ]);
+    });
+
+    it('harness_mode ask with ask_mode, permission_answers allow: ask_mode applied, requests allowed', async () => {
+        const entry = [
+            ...AUTO_BLOCK,
+            '    harness_mode: ask',
+            '    permission_answers: allow',
+            '    ask_mode: { mode: default, args: ["--ask"] }',
+        ];
+        const echo = fakeKimi('echo', entry);
+        expect(ok(await runThronglet(input('kimi/fake-small'), echo.ctx)).warnings).toBe(undefined);
+        expect(summary(echo.calls())).toStrictEqual([
+            'start ["--ask"] {"PROBE_ENTRY":"1"}',
+            'set_mode default',
+            'set_config_option model="fake-small"',
+            'prompt',
+        ]);
+        const permission = fakeKimi('permission', entry);
+        expect(ok(await runThronglet(input('kimi/fake-small'), permission.ctx)).text).toBe('allowed');
+    });
+
+    it('harness_mode auto without auto_mode: a permission request is still refused (§5)', async () => {
         const { ctx } = fakeKimi('permission');
         expect(ok(await runThronglet(input('kimi/fake-small'), ctx)).text).toBe('rejected');
     });
 
-    it('allow_all: ask_approval applied, permission requests allowed', async () => {
-        const entry = [
-            ...AUTO_BLOCK,
-            '    permissions: allow_all',
-            '    ask_approval: { mode: default, args: ["--ask"] }',
-        ];
+    it('permissions allow_all: ask_mode applied, permission requests allowed', async () => {
+        const entry = [...AUTO_BLOCK, '    permissions: allow_all', '    ask_mode: { mode: default, args: ["--ask"] }'];
         const echo = fakeKimi('echo', entry);
         const payload = ok(await runThronglet(input('kimi/fake-small'), echo.ctx));
         expect(payload.warnings).toBe(undefined);
@@ -276,8 +300,8 @@ describe('custom harness runs (fake agent)', () => {
         expect(ok(await runThronglet(input('kimi/fake-small'), permission.ctx)).text).toBe('allowed');
     });
 
-    it('an auto_approve option the agent lacks → warning, the turn runs', async () => {
-        const { ctx } = fakeKimi('echo', ['    auto_approve: { config_options: { turbo: on } }']);
+    it('an auto_mode option the agent lacks → warning, the turn runs', async () => {
+        const { ctx } = fakeKimi('echo', ['    auto_mode: { config_options: { turbo: on } }']);
         const payload = ok(await runThronglet(input('kimi/fake-small'), ctx));
         expect(payload.warnings).toStrictEqual(['permission option "turbo" not applied: kimi does not advertise it']);
     });
@@ -451,7 +475,7 @@ describe('a custom harness with a built-in id', () => {
         return { ctx: h.makeCtx(loaded), calls: () => readFakeCalls(callLog), tag, loaded };
     }
 
-    it('a run launches the custom command with its auto_approve; a resumed turn stays on it', async () => {
+    it('a run launches the custom command with its auto_mode; a resumed turn stays on it', async () => {
         const { ctx, calls } = fakeCustomClaude('echo', AUTO_BLOCK);
         const first = ok(await runThronglet(input('claude/fake-small'), ctx));
         expect(first.warnings).toBe(undefined);
@@ -472,7 +496,7 @@ describe('a custom harness with a built-in id', () => {
         ]);
     });
 
-    it('the policy comes from custom_harnesses.claude, not harnesses.claude', async () => {
+    it('the permission settings come from custom_harnesses.claude, not harnesses.claude', async () => {
         const allow = fakeCustomClaude('permission', ['    permissions: allow_all']);
         expect(ok(await runThronglet(input('claude/fake-small'), allow.ctx)).text).toBe('allowed');
 
@@ -513,5 +537,13 @@ describe('elicitation_unsupported on a custom harness', () => {
         const { ctx } = fakeKimi('echo', ['    permissions: elicit']);
         const payload = failed(await runThronglet(input('kimi/fake-small'), ctx), 'elicitation_unsupported');
         expect(payload.message).toContain('set custom_harnesses.kimi.permissions in the throng config');
+    });
+
+    it('names custom_harnesses.<id>.permission_answers', async () => {
+        const { ctx } = fakeKimi('echo', ['    permission_answers: elicit']);
+        const payload = failed(await runThronglet(input('kimi/fake-small'), ctx), 'elicitation_unsupported');
+        expect(payload.message).toContain(
+            'set custom_harnesses.kimi.permission_answers in the throng config to auto, allow or deny'
+        );
     });
 });
