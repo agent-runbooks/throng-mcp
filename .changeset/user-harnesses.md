@@ -2,4 +2,4 @@
 'throng-mcp': minor
 ---
 
-User harnesses: any other ACP agent can be described in the config under `harnesses.<id>` with `command`, `args` and `env`. Policy `auto` applies the entry's `auto_approve` (session mode, config options, args, env), and the other policies apply `ask_approval`. After that, `run_thronglet` takes `<id>/<model>[:<effort>]`, and `list_harnesses`, `send_message` and the background tools treat it like a built-in harness. throng installs nothing for it and guesses nothing. Without `auto_approve`, policy `auto` leaves the agent in its starting mode and warns. `list_harnesses` now reports `harness` as a string.
+You can now run any ACP agent, not only the built-in Claude Code, Codex, OpenCode and Gemini CLI. Add the agent to your throng config with the command that starts it, and call it like the others: `kimi/<model>`. If the agent has an auto-approve mode, name it in the config too, and throng switches to it under the default `auto` policy. See [User harnesses](https://github.com/agent-runbooks/throng-mcp/blob/main/docs/configuration.md#user-harnesses).
