@@ -63,7 +63,7 @@ harnesses:
 - `permissions`: the per-harness policy override, as for the built-in harnesses.
 - `auto_approve` is used under policy `auto`, `ask_approval` under `allow_all`, `deny_all` and `elicit`. Each takes:
   - `mode`: a session mode id, set after the session starts and on every resumed turn. Strict: if the agent rejects it, the run fails.
-  - `config_options`: `{ <option id>: <value> }`, set in the order written after the mode. A string is a select option's value, `true`/`false` a boolean option's. Best effort: an option the agent doesn't advertise, or rejects, is a warning and the turn runs anyway.
+  - `config_options`: `{ <option id>: <value> }`, set after the mode. A string is a select option's value, `true`/`false` a boolean option's. Best effort: an option the agent doesn't advertise, or rejects, is a warning and the turn runs anyway.
   - `args`: appended to `args` for the runs under that policy.
   - `env`: added to `env` for the runs under that policy.
 

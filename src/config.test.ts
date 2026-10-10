@@ -166,7 +166,9 @@ describe('loadConfig: user harnesses', () => {
             ['no-value.yaml', '  kimi:'],
         ] as const) {
             const error = errorOf(name, `harnesses:\n${entry}\n`);
-            expect(error).toMatch(/invalid config: harnesses\.kimi\.command: required for a user harness$/);
+            expect(error).toMatch(
+                /invalid config: harnesses\.kimi\.command: required for a user harness \(kimi is not one of the native claude, codex, opencode, gemini\)$/
+            );
         }
     });
 

@@ -9,6 +9,10 @@ export type Effort = (typeof EFFORT_LEVELS)[number];
 export const HARNESS_IDS = ['claude', 'codex', 'opencode', 'gemini'] as const;
 export type HarnessId = (typeof HARNESS_IDS)[number];
 
+export function isNativeHarness(id: string): id is HarnessId {
+    return (HARNESS_IDS as readonly string[]).includes(id);
+}
+
 export type StopReason = 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal';
 
 /** A JSON Schema (draft-07 or 2020-12) for structured output (DESIGN §6); compiled by ajv before spawn. */

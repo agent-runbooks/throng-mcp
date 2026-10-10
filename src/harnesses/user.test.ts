@@ -429,7 +429,7 @@ describe('list_harnesses with user harnesses', () => {
         const out = await listHarnesses(loaded, { handshakeMs: 5000, depth: 0, env: { PATH: bin } });
         expect(out.unavailable.map(u => u.harness)).toStrictEqual(['claude', 'codex', 'opencode', 'gemini']);
         expect(out.unavailable[0]?.reason).toMatch(
-            /^config error: .*harnesses\.kimi\.command: required for a user harness$/
+            /^config error: .*harnesses\.kimi\.command: required for a user harness \(kimi is not one of the native claude, codex, opencode, gemini\)$/
         );
     });
 });
