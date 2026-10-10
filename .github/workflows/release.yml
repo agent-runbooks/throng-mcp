@@ -16,7 +16,6 @@ jobs:
             issues: write # to post issue comments
             pull-requests: write # to create pull request
             id-token: write # to mint the OIDC token npm exchanges for publish rights
-            actions: write # to dispatch CI on the release PR
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,9 +34,3 @@ jobs:
                   commit-message: 'chore(release): version bump'
                   publish-script: pnpm run ci:publish
                   version-script: pnpm run ci:version
-            # Pushes and PRs made with GITHUB_TOKEN trigger no workflows, so the release PR would never get its required checks.
-            - name: Run CI on the release PR
-              if: steps.changesets.outputs.pullRequestNumber != ''
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: gh workflow run ci.yml --ref changeset-release/main
