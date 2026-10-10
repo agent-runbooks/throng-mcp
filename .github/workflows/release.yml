@@ -37,7 +37,7 @@ jobs:
                   version-script: pnpm run ci:version
             # Pushes and PRs made with GITHUB_TOKEN trigger no workflows, so the release PR would never get its required checks.
             - name: Run CI on the release PR
-              if: steps.changesets.outputs.pullRequestNumber != ''
+              if: steps.changesets.outputs.pr-number != ''
               env:
                   GH_TOKEN: ${{ github.token }}
               run: gh workflow run ci.yml --ref changeset-release/main
