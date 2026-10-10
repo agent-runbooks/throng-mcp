@@ -1,5 +1,5 @@
 import type { Config } from '../config.ts';
-import { HARNESS_IDS, type HarnessId, isNativeHarness } from '../contract.ts';
+import { HARNESS_IDS, type HarnessId, isBuiltinHarness } from '../contract.ts';
 import { claude } from './claude.ts';
 import { codex } from './codex.ts';
 import { gemini } from './gemini.ts';
@@ -14,12 +14,12 @@ export const HARNESSES: Record<HarnessId, HarnessDefinition> = { claude, codex, 
 
 /** A native harness, else a user harness from `config.harnesses`; `undefined` when `id` is neither. */
 export function harnessFor(id: string, config: Config): HarnessDefinition | undefined {
-    if (isNativeHarness(id)) return HARNESSES[id];
+    if (isBuiltinHarness(id)) return HARNESSES[id];
     const entry = Object.hasOwn(config.harnesses, id) ? config.harnesses[id] : undefined;
     return entry?.command === undefined ? undefined : userHarness(id, { ...entry, command: entry.command });
 }
 
 /** Every harness id `config` knows: the natives, then the user harnesses. */
 export function harnessIds(config: Config): string[] {
-    return [...HARNESS_IDS, ...Object.keys(config.harnesses).filter(id => !isNativeHarness(id))];
+    return [...HARNESS_IDS, ...Object.keys(config.harnesses).filter(id => !isBuiltinHarness(id))];
 }

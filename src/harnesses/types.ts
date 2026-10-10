@@ -44,14 +44,14 @@ export interface PermissionSetup {
     configOptions?: { id: string; value: ConfigOptionValue }[];
     /** Appended to the launch args of the adapter process. */
     args?: string[];
-    /** Reported on the call's result: the policy could not be expressed natively (a user harness without `auto_approve`). */
+    /** Reported on the call's result: the policy could not be expressed natively (a custom harness without `auto_approve`). */
     warning?: string;
 }
 
 export interface HarnessDefinition {
-    /** A native `HarnessId`, or the config key of a user harness (DESIGN §8). */
+    /** A built-in `HarnessId`, or the config key of a custom harness (DESIGN §8). */
     id: string;
-    /** Natives only: the registry entry their install hint comes from. */
+    /** Built-ins only: the registry entry their install hint comes from. */
     registryId?: string;
     /** Adapter command from config or PATH; harness binary env when found (decision-3). Pure: no spawning. */
     resolve(config: Config, registry: RegistrySnapshot, env?: NodeJS.ProcessEnv): HarnessResolution;

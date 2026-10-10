@@ -5,11 +5,11 @@
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type Effort = (typeof EFFORT_LEVELS)[number];
 
-/** Native harnesses (DESIGN §4.1). A user harness from the config (§8) has any other id. */
+/** Built-in harnesses (DESIGN §4.1). A custom harness from the config (§8) may have any id, one of these included. */
 export const HARNESS_IDS = ['claude', 'codex', 'opencode', 'gemini'] as const;
 export type HarnessId = (typeof HARNESS_IDS)[number];
 
-export function isNativeHarness(id: string): id is HarnessId {
+export function isBuiltinHarness(id: string): id is HarnessId {
     return (HARNESS_IDS as readonly string[]).includes(id);
 }
 
@@ -86,7 +86,7 @@ export interface RunFailure {
 }
 
 export interface HarnessInfo {
-    /** A native id or a user harness id from the config. */
+    /** A built-in id or a custom harness id from the config. */
     harness: string;
     command: string[];
     /** Adapter's `initialize.agentInfo.version`. */

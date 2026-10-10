@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import { HARNESS_IDS, isNativeHarness } from './contract.ts';
+import { HARNESS_IDS, isBuiltinHarness } from './contract.ts';
 
 // Server config (DESIGN §8). Unknown keys are rejected so a typo surfaces as a config error instead of being ignored.
 
@@ -43,7 +43,7 @@ const harnessEntries = z
     )
     .superRefine((entries, ctx) => {
         for (const [id, entry] of Object.entries(entries)) {
-            if (isNativeHarness(id)) {
+            if (isBuiltinHarness(id)) {
                 for (const key of APPROVAL_KEYS) {
                     // `section` maps a bare `auto_approve:` to undefined, but zod keeps the key, so presence is the test.
                     if (!Object.hasOwn(entry, key)) continue;

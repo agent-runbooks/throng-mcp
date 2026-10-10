@@ -1,11 +1,11 @@
 ---
 id: THRONG-20
 title: User-defined harnesses from config
-status: Review
+status: In Progress
 assignee:
   - '@opus'
 created_date: '2026-10-02 21:22'
-updated_date: '2026-10-10 15:13'
+updated_date: '2026-10-10 16:02'
 labels: []
 milestone: m-3
 dependencies: []
@@ -17,19 +17,23 @@ ordinal: 20000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-throng has four native harnesses (claude, codex, opencode, gemini). The maintainer will not take PRs for niche ACP agents, but a user who wants one should be able to describe it in their own config, with enough flexibility to express everything throng needs from a harness: command, args, env, and how each permission policy is expressed natively.
+throng has four built-in harnesses (claude, codex, opencode, gemini). The maintainer will not take PRs for niche ACP agents, but a user who wants one should be able to describe it in their own config, with enough flexibility to express everything throng needs from a harness: command, args, env, and how each permission policy is expressed natively.
 
-History. The task started as "launch any ACP registry agent" (registry id as harness, command and auto mode inferred from the registry entry and session/new). Rejected on 2026-10-10 after checking how other ACP clients work (source of Zed, t3code, acpx, agent-shell, Toad, codecompanion.nvim, avante.nvim, Obsidian Agent Client): registry consumers install agents themselves into their own dirs, which decision-3 forbids; the registry carries no bin name for npx packages, so finding the command on PATH means guessing it; and nothing in the ACP spec or registry marks a mode or config option as auto-approve, so picking yolo/auto/bypass is guessing too. Zed and agent-shell do it the same way: the user names the mode per agent. So a harness beyond the natives is defined entirely in config, nothing is inferred, and the registry plays no part. Listing only installed harnesses is THRONG-28.
+History. The task started as "launch any ACP registry agent" (registry id as harness, command and auto mode inferred from the registry entry and session/new). Rejected on 2026-10-10 after checking how other ACP clients work (source of Zed, t3code, acpx, agent-shell, Toad, codecompanion.nvim, avante.nvim, Obsidian Agent Client): registry consumers install agents themselves into their own dirs, which decision-3 forbids; the registry carries no bin name for npx packages, so finding the command on PATH means guessing it; and nothing in the ACP spec or registry marks a mode or config option as auto-approve, so picking yolo/auto/bypass is guessing too. Zed and agent-shell do it the same way: the user names the mode per agent. So a harness beyond the built-in ones is defined entirely in config, nothing is inferred, and the registry plays no part (decision-8). Listing only installed harnesses is THRONG-28.
+
+In review (2026-10-10) the maintainer moved these entries out of `harnesses` into a section of their own, so adding a built-in harness later never breaks a config, and renamed "native" to "built-in" (native stays for a harness's own modes). A custom id equal to a built-in one wins.
 
 Config shape agreed with the maintainer:
 
 ```yaml
-harnesses:
-  kimi:                          # any id except the native ones; no "/" or ":"
+harnesses:                       # overrides of the built-in harnesses only
+  claude: { permissions: deny_all }
+custom_harnesses:
+  kimi:                          # letters, digits, ".", "_", "-"
     command: kimi                # required: a name on PATH or a path
     args: [acp]
     env: { KIMI_X: "1" }
-    permissions: allow_all       # the existing per-harness policy override
+    permissions: allow_all
     auto_approve:                # policy auto: the agent approves on its own
       mode: yolo
       config_options: { permission: bypass }
@@ -42,15 +46,16 @@ Both blocks take mode, config_options, args, env. No effort mapping and no pre-t
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [x] #1 A `harnesses.<id>` entry whose id is not native (claude, codex, opencode, gemini) defines a user harness with `command` (required; a name on PATH or a path), `args`, `env`, `permissions`, `auto_approve`, `ask_approval`; run_thronglet accepts `<id>/<model>[:<effort>]` and launches `command args` with `env`. An id containing `/` or `:`, a missing `command`, or `auto_approve`/`ask_approval` on a native id is a config error
-- [x] #2 A user harness whose command is not found: run_thronglet fails with harness_unavailable before spawn, naming the command and its config key, without an install hint; list_harnesses lists it under unavailable with the same reason. An agent spec whose harness is neither native nor configured fails with harness_unavailable listing the valid harness ids
-- [x] #3 Policy auto applies `auto_approve`, the other policies apply `ask_approval`: `mode` via session/set_mode (strict, as for natives), `config_options` via session/set_config_option in order (best effort with warnings, as in THRONG-21), `args` appended to the launch args, `env` merged into the adapter env; applied after session/new and after session/resume. Policy auto without `auto_approve` runs in the agents starting mode and the result carries a warning naming `harnesses.<id>.auto_approve`. Answers to request_permission follow DESIGN §5 unchanged
-- [x] #4 Model and effort on a user harness: model through the `model` config option or the session `models` list with session/set_model; a model not offered → model_rejected; effort is set only when the `thought_level` option offers exactly that value, otherwise a warning
-- [x] #5 A user harness session works with send_message, wait_thronglet, list_thronglets and cancel_thronglet like a native one; send_message to a session whose harness is no longer configured fails with harness_unavailable before spawn
-- [x] #6 Native harnesses behave exactly as before: their config keys, list_harnesses output and existing tests are unchanged
-- [x] #7 Tests via test/fake-agent cover: launch with command/args/env from config, auto_approve mode and config options, the missing auto_approve warning, ask_approval under allow_all, model and effort, command not found, unknown harness id, a resumed turn
-- [x] #8 DESIGN (§3.1, §3.4, §4.1, §8, §11), docs/configuration.md and README describe user harnesses; a backlog decision records that harnesses beyond the natives come from config only, not from the ACP registry
-- [ ] #9 Smoke (maintainer): a user harness entry pointing at an installed adapter runs one real turn under policy auto with auto_approve and one under allow_all
+- [ ] #1 A `custom_harnesses.<id>` entry defines a custom harness with `command` (required; a name on PATH or a path), `args`, `env`, `permissions`, `auto_approve`, `ask_approval`; run_thronglet accepts `<id>/<model>[:<effort>]` and launches `command args` with `env`. `harnesses` takes only the built-in ids, as before this task. An id outside letters, digits, `.`, `_`, `-`, or a missing `command`, is a config error
+- [ ] #2 A custom harness whose command is not found: run_thronglet fails with harness_unavailable before spawn, naming the command and its config key, without an install hint; list_harnesses lists it under unavailable with the same reason. An agent spec whose harness is neither built-in nor custom fails with harness_unavailable listing the valid harness ids
+- [ ] #3 Policy auto applies `auto_approve`, the other policies apply `ask_approval`: `mode` via session/set_mode (strict, as for built-in harnesses), `config_options` via session/set_config_option (best effort with warnings, as in THRONG-21), `args` appended to the launch args, `env` merged into the adapter env; applied after session/new and after session/resume. Policy auto without `auto_approve` runs in the agent's starting mode and the result carries a warning naming `custom_harnesses.<id>.auto_approve`. Answers to request_permission follow DESIGN §5 unchanged
+- [ ] #4 Model and effort on a custom harness: model through the `model` config option or the session `models` list with session/set_model; a model not offered → model_rejected; effort is set only when the `thought_level` option offers exactly that value, otherwise a warning
+- [ ] #5 A custom harness session works with send_message, wait_thronglet, list_thronglets and cancel_thronglet like a built-in one; send_message to a session whose harness is no longer configured fails with harness_unavailable before spawn
+- [ ] #6 Built-in harnesses behave exactly as before: their config keys, list_harnesses output and existing tests are unchanged
+- [ ] #7 A custom id equal to a built-in id wins: runs, list_harnesses, policy lookup and resumed sessions use the custom definition, and the server logs at start that the built-in harness is shadowed
+- [ ] #8 Tests via test/fake-agent cover: launch with command/args/env from config, auto_approve mode and config options, the missing auto_approve warning, ask_approval under allow_all, model and effort, command not found, unknown harness id, a resumed turn, a custom id shadowing a built-in one
+- [ ] #9 DESIGN (§3.1, §3.4, §4.1, §8, §11), docs/configuration.md and README describe custom harnesses and call the others built-in; a backlog decision records that harnesses beyond the built-in ones come from config only, not from the ACP registry
+- [ ] #10 Smoke (maintainer): a custom harness entry pointing at an installed adapter runs one real turn under policy auto with auto_approve and one under allow_all
 <!-- AC:END -->
 
 ## Definition of Done
@@ -138,6 +143,73 @@ Add, don't edit existing assertions:
 ## Do not touch
 
 `backlog/`, `.changeset/`, `src/contract.ts`, `src/harnesses/types.ts`, `docs/DESIGN.md`, `data/registry.json`, the native harness definitions' behaviour, anything outside the worktree. No new dependencies.
+
+## Gates
+
+`pnpm typecheck && pnpm lint && pnpm test` green. Only erasable TS syntax, imports with `.ts`. Comments per the surrounding code: sparse, purpose above public entities.
+
+# THRONG-20, round 2: `custom_harnesses` section, "built-in" wording
+
+Repo: the worktree you were given (branch `throng-20`). THRONG-20 is already implemented on this branch: user-defined harnesses from config (`src/harnesses/user.ts`, `src/config.ts`, `src/harnesses/index.ts`, `run.ts`, `list.ts`, `sessions.ts`, tests in `src/harnesses/user.test.ts` and others). In review the maintainer asked for two changes; this run makes them. Read AGENTS.md "Code rules", then DESIGN.md §3.1, §3.3, §3.4, §4.1 (the "Custom harnesses" part), §8, and `backlog/decisions/decision-8 - …md`.
+
+## The two changes
+
+1. **A section of its own.** User harnesses currently share `harnesses` with the built-in overrides: any non-built-in id under `harnesses` is a user harness. That breaks configs when throng later adds a built-in harness with the same id (THRONG-23 will add `copilot`). New shape:
+
+   ```yaml
+   harnesses:                 # built-in overrides only, exactly as before THRONG-20
+     claude: { permissions: deny_all }
+   custom_harnesses:
+     kimi:                    # letters, digits, ".", "_", "-", starting with a letter or digit
+       command: kimi          # required
+       args: [acp]
+       env: { KIMI_X: "1" }
+       permissions: allow_all
+       auto_approve: { mode: yolo, config_options: { permission: bypass } }
+       ask_approval: { mode: default }
+   ```
+
+   - `harnesses` goes back to the pre-THRONG-20 schema: `z.partialRecord(z.enum(HARNESS_IDS), <strict override: command, args, env, permissions>)` with the null-entry preprocessing. A typo such as `codx:` is again an invalid-key config error. Check `git show main:src/config.ts` for the original.
+   - `custom_harnesses`: a record keyed by the id regex, each entry a strict object with `command` required (non-empty), `args`, `env`, `permissions`, `auto_approve`, `ask_approval` (the existing approval block schema). A null section counts as absent (`section`); a null entry (`kimi:` with no value) fails on the missing `command`. The superRefine for native/user kinds, the "is a native harness" check and the "(… is not one of the native …)" hint all go away: two plain schemas.
+   - **Collision rule:** a custom id equal to a built-in id (`custom_harnesses.claude`) is allowed and **wins** everywhere: `harnessFor`, `harnessIds` / list_harnesses (listed once, as the custom one), `resolvePolicy` (its `permissions` come from `custom_harnesses.<id>`), the elicitation key in `run.ts` error text, resumed sessions. The built-in harness is unreachable under that id. At server start (`src/mcp.ts`, next to the existing config-error log) log one `log.warn` line per shadowed id, e.g. `custom_harnesses.claude shadows the built-in claude harness`. Put the list of shadowed ids behind a small exported function so it is unit-testable.
+   - `harnessIds(config)`: built-in ids that are not shadowed, then the custom ids.
+   - Config keys and messages that name the key change from `harnesses.<id>` to `custom_harnesses.<id>`: the command-not-found reason (`<command> (custom_harnesses.<id>.command) not found on PATH`), the missing `auto_approve` warning (`custom_harnesses.<id>.auto_approve is not set: …`), the elicitation-unsupported key (`custom_harnesses.<id>.permissions`). Built-in override messages keep `harnesses.<id>.command`. `findCommand` currently builds `harnesses.${id}.command` itself; give it the key path (or the section) so both callers name the right one.
+   - Config type: `Config.harnesses` is back to built-in overrides keyed by `HarnessId`; `Config.custom_harnesses: Record<string, CustomHarnessEntry>` with `command: string`. `harnessFor` no longer needs the `{ ...entry, command }` narrowing.
+
+2. **"native" → "built-in", "user harness" → "custom harness"** for the harness kinds, in code, tests and docs: `src/harnesses/user.ts` → `src/harnesses/custom.ts` (`userHarness` → `customHarness`, `UserHarnessEntry` → `CustomHarnessEntry`), `user.test.ts` → `custom.test.ts` (`git mv`), identifiers, comments, test titles, messages (e.g. the `HARNESSES` doc comment "The native harnesses" → built-in). Keep "native" where it means a harness's own mechanism (DESIGN §5 "native mode", "expressed natively", "native auto"). `isNativeHarness` is already renamed to `isBuiltinHarness` in `src/contract.ts` by the main session.
+
+## Already done by the main session (commit `THRONG-20: contract — custom_harnesses …` on this branch). Do not change these
+
+`docs/DESIGN.md`, `src/contract.ts`, `src/harnesses/types.ts`, `backlog/`. If the implementation ends up contradicting DESIGN, stop and report it instead of editing either side.
+
+## Docs to update
+
+- `docs/configuration.md`: the config example gets a separate commented `custom_harnesses:` block (not mixed into `harnesses:`; the `harnesses:` comment says built-in overrides only); the "User harnesses" section becomes "Custom harnesses" (anchor `#custom-harnesses`), keys under `custom_harnesses.<id>`, the collision rule in one sentence; the troubleshooting row; "built-in" wording throughout. Drop the bullet about `auto_approve`/`ask_approval` on a built-in harness being an error (no longer possible).
+- `README.md`: the paragraph about other ACP agents says "custom harness" and links `docs/configuration.md#custom-harnesses`.
+- `.changeset/user-harnesses.md`: keep the user-facing text as is, fix the link anchor to `#custom-harnesses`. Rename the file to `.changeset/custom-harnesses.md` with `git mv`. This one file is the only `.changeset/` edit allowed.
+
+## Tests
+
+Update the existing THRONG-20 tests to the new section, and add:
+- config: `custom_harnesses` entry with every key; missing `command`; null entry; bad id; `harnesses.kimi` (non-built-in id under `harnesses`) is an invalid-key error again; approval block errors under `custom_harnesses`; `custom_harnesses:` with no value is absent.
+- collision: `custom_harnesses.claude` wins in `harnessFor`, `harnessIds` (claude listed once), `resolvePolicy`, a run on the fake agent (the custom command is launched, its `auto_approve` applies), list_harnesses (one `claude` row, the custom one); the shadowed-ids function returns `['claude']`.
+- messages name `custom_harnesses.<id>.…` where listed above.
+Existing built-in tests must pass unchanged, except assertions written for the THRONG-20 shape on this branch (those move to the new shape).
+
+## Acceptance criteria (THRONG-20, as updated)
+
+1. `custom_harnesses.<id>` defines a custom harness (`command` required, `args`, `env`, `permissions`, `auto_approve`, `ask_approval`); run_thronglet accepts `<id>/<model>[:<effort>]`. `harnesses` takes only built-in ids. Bad id or missing `command` is a config error.
+2. Command not found → harness_unavailable before spawn naming the command and its config key, no install hint; list_harnesses lists it under unavailable. Unknown harness → harness_unavailable listing valid ids.
+3. auto → `auto_approve`, others → `ask_approval` (mode strict, config_options best effort, args appended, env merged), after new and resume; auto without `auto_approve` → warning naming `custom_harnesses.<id>.auto_approve`.
+4. Model/effort as before.
+5. Sessions of custom harnesses work with all tools; send_message to one no longer configured → harness_unavailable before spawn.
+6. Built-in harnesses unchanged.
+7. A custom id equal to a built-in id wins (runs, list_harnesses, policy lookup, resumed sessions), and the server logs at start that the built-in one is shadowed.
+8. Tests as above. 9. Docs as above (DESIGN and decision done).
+
+## Do not touch
+
+`backlog/`, `.changeset/` other than the one file above, `docs/DESIGN.md`, `src/contract.ts`, `src/harnesses/types.ts`, `data/registry.json`, the built-in harness definitions' behaviour, anything outside the worktree. No new dependencies.
 
 ## Gates
 
