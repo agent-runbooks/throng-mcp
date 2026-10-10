@@ -7,6 +7,7 @@ import { parseArgs } from 'node:util';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+import { DEFAULT_EXIT_GRACE_MS } from '../../src/acp/worker.ts';
 import { parseAgentSpec } from '../../src/agent-spec.ts';
 import { resolveModel } from '../../src/harnesses/select.ts';
 import type {
@@ -27,10 +28,10 @@ import type {
 // With --cancel the run goes to the background and is cancelled right away (DESIGN §3.7, §3.8): list_thronglets shows it
 // running, cancel_thronglet stops it, wait_thronglet returns `cancelled`, list_thronglets shows it failed; the pong.txt
 // and follow-up checks are skipped.
-// With --steer the run goes to the background on a prompt that keeps it busy, and a send_message with `steer: true`
-// interrupts it (DESIGN §3.3): its reply must contain STEERED, then list_thronglets shows the session idle; the pong.txt
-// and follow-up checks are skipped.
-// Gemini CLI has no session/resume (DESIGN §2.3): for harness gemini the follow-up is skipped and --steer is a usage error.
+// With --steer the run goes to the background on a prompt that keeps it busy, and once the turn has had time to start
+// its tool call a send_message with `steer: true` interrupts it (DESIGN §3.3): its reply must contain STEERED, then
+// list_thronglets shows the session idle; the pong.txt and follow-up checks are skipped.
+// Gemini CLI has no session/resume (docs/harnesses.md): for harness gemini the follow-up is skipped and --steer is a usage error.
 // Cursor CLI continues a session through session/load, so its follow-up and --steer run like the others.
 // Spends tokens: run by hand, one harness at a time. Exit: 0 pass, 1 any FAIL or tool error, 2 usage/availability.
 
@@ -51,6 +52,11 @@ const STEER_RUN_PROMPT =
 const STEER_PROMPT = 'Stop what you are doing. Reply with exactly one line: "STEERED" followed by what you were doing.';
 const FOLLOW_UP_PROMPT = 'Which file did you create in the previous step? Reply with the bare file name only.';
 const DEFAULT_TIMEOUT_S = 300;
+// No tool shows a background turn's activity (list_thronglets says only `running`, the tool-call progress ends at the
+// acceptance), so the steer waits a fixed time. Cursor keeps no session to load until a turn has produced output.
+const STEER_DELAY_MS = 10_000;
+// Past throng's whole shutdown of an adapter (stdin closed, SIGTERM after the exit grace, SIGKILL after another), plus slack.
+const ORPHAN_WAIT_MS = 2 * DEFAULT_EXIT_GRACE_MS + 2000;
 // submit-tool: the structured-output server the harness spawns; its argv carries the run's temp dir under our TMPDIR.
 // gemini.*--acp: a relaunched Gemini CLI may show its package entry (`…/gemini-cli/…/index.js --acp`), not `gemini --acp`.
 const ADAPTER_PATTERNS = [
@@ -302,6 +308,9 @@ async function steerSteps(args: Record<string, unknown>): Promise<void> {
         `run_thronglet background answered ${textOf(accepted).slice(0, 200)}, expected state running`
     );
 
+    say(`wait ${STEER_DELAY_MS / 1000} s for the turn to get busy`);
+    await new Promise(r => setTimeout(r, STEER_DELAY_MS));
+
     say(`send_message session_id=${id} steer timeout_s=${timeoutS}`);
     const steered = await client.callTool(
         { name: 'send_message', arguments: { session_id: id, prompt: STEER_PROMPT, steer: true, timeout_s: timeoutS } },
@@ -511,7 +520,7 @@ say('check adapter processes');
 if (before && !pgrepError) {
     const baseline = before;
     let orphans: number[] = [];
-    const deadline = Date.now() + 3000;
+    const deadline = Date.now() + ORPHAN_WAIT_MS;
     try {
         for (;;) {
             orphans = [...adapterPids()].filter(pid => !baseline.has(pid));

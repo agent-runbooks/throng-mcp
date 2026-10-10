@@ -1,11 +1,11 @@
 ---
 id: THRONG-30
 title: Cursor CLI as a native harness
-status: Review
+status: Done
 assignee:
   - '@nodge'
 created_date: '2026-10-10 15:32'
-updated_date: '2026-10-10 20:46'
+updated_date: '2026-10-10 21:31'
 labels: []
 milestone: m-3
 dependencies:
@@ -35,7 +35,7 @@ Decided by nodge (2026-10-10): no throng-owned CURSOR_CONFIG_DIR; edits Cursor a
 - [x] #4 After initialize throng calls `authenticate` with `cursor_login` when the agent advertises it (run and list_harnesses probe alike); without `agent login` the call fails with handshake_failed carrying the agent's "run agent login" message
 - [x] #5 `harness_mode: auto` launches `cursor-agent acp --force`, `ask` launches without the flag; request_permission is answered per `permission_answers` (DESIGN §5); nothing blocks edits Cursor applies on its own, and DESIGN/README say so
 - [x] #6 `send_message` (steer included) continues a Cursor session through session/load in a new adapter process; the replayed history ends up neither in the turn text nor in warnings; the record is resumable, list_thronglets shows accepts_messages true. Gemini stays one-turn (THRONG-31): load continuation is opt-in per harness definition
-- [ ] #7 scripts/smoke has a cursor case; maintainer smoke on a real Cursor account: under `harness_mode: auto` a shell command outside Cursor's allowlist runs without request_permission, under `ask` + `deny` it is refused, send_message answers from the previous turn
+- [x] #7 scripts/smoke has a cursor case; maintainer smoke on a real Cursor account: under `harness_mode: auto` a shell command outside Cursor's allowlist runs without request_permission, under `ask` + `deny` it is refused, send_message answers from the previous turn
 - [x] #8 DESIGN: Cursor facts in §2, the harness id in §3, the handshake (authenticate, session/load) in §4.2, a cursor column in the §4.1 table, `resumable` in §8, Cursor dropped from §11; README lists cursor with the `agent login` step
 <!-- AC:END -->
 
@@ -125,6 +125,8 @@ Gates: `pnpm typecheck && pnpm lint && pnpm test`. Formatting via prettier in th
 
 <!-- SECTION:NOTES:BEGIN -->
 Run .agent-runbooks/runs/20261010-throng-30 ended ready. Contracts by the main session (in the brief, written verbatim by the coder): cursor in HARNESS_IDS, HarnessDefinition.authMethodId and continueViaLoad, WorkerSpawn.authMethodId, SessionStart resume variant with allowLoad. Checked on the real binary before the run (no login): `cursor-agent acp --force` is accepted, an unknown flag after acp fails "unknown option", so PermissionSetup.args appended after `acp` works; whether --force takes effect is for the smoke. Review: Opus 1 finding (a1, fake-agent docs did not say cursor scenarios ignore FAKE_CONFIG_OPTIONS; fixed, comment only), GPT 0. Coder deviations: comment-only rewording of accepts_messages (contract.ts) and resumable (sessions.ts) from "resume" to "continue". Worker detail: after the session/load response the worker waits one setImmediate before clearing the replay flag, because the SDK dispatches notifications a few microtasks after responses. Spot-checked by the main session: worker.ts handshake (authenticate only when advertised, load only with allowLoad, session_not_found on load errors), run.ts canContinue, select.ts resolveModel (exact first, unique bracket prefix, else model_rejected), cursor.ts. Gates in the worktree: typecheck 0, lint 0, vitest 28 files 393 tests; rerun by the main session: cursor/select/worker tests 60/60. AC #7 (real-account smoke) waits on the maintainer: commands in docs/development.md smoke section.
+
+Smoke by the main session on the real Cursor CLI 2026.10.01-e373342 (free account, logged in by nodge, binary unpacked in the scratchpad and put on PATH only for the runs), 2026-10-10. Passed: (1) auto, edit + send_message through session/load answered pong.txt; (3b) auto, `echo pong > pong.txt` ran with no request_permission (--force after acp works); (3) ask + deny, the same shell command got reject-once twice, no file; (2) ask + deny, shell refused, then Cursor wrote the file with its edit tool unasked (expected, documented); (4) --steer after the smoke fix; (5) effort warning; (6) cursor/gpt-5.4-nano resolved to the listed value, free plan answered "Upgrade your plan" (expected). Two smoke-side fixes, no server change: the orphan check waits past throng's whole adapter shutdown (2 × DEFAULT_EXIT_GRACE_MS + 2 s; cursor-agent sometimes outlived 3 s and 7 s windows, the processes were gone right after; 3 runs clean at 12 s), and --steer waits 10 s before steering (Cursor stores a session only after its first turn produced output; the old smoke steered at 4.7 s and session/load answered "Session not found"). Found while checking: Cursor saves the selected model as its ACP default in ~/.cursor/acp-config.json. Cursor facts moved to docs/harnesses.md (THRONG-32). Gates after the fixes: typecheck 0, lint 0, vitest 393/393 three runs in a row (one unexplained failure in an earlier smoke-tests-only run, not reproduced in five later runs).
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

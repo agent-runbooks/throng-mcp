@@ -168,6 +168,7 @@ describe('smoke script against the fake agent', () => {
         expect(code, stdout + stderr).toBe(0);
         expect(stdout).toMatch(/run_thronglet agent=claude\/fake-small .* background, then steer$/m);
         expect(stdout).toMatch(/PASS: run_thronglet background accepted/);
+        expect(stdout).toMatch(/^\d+\. wait 10 s for the turn to get busy$/m);
         expect(stdout).toMatch(/send_message session_id=\S+ steer/);
         expect(stdout).toMatch(/PASS: send_message steer answered STEERED/);
         expect(stdout).toMatch(/PASS: list_thronglets shows the session idle/);
