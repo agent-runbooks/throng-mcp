@@ -1,0 +1,5 @@
+---
+'throng-mcp': minor
+---
+
+Permissions are now two config keys instead of one. `harness_mode: auto | ask` picks the mode the harness runs in: its own auto-approve mode or its asking mode. `permission_answers: auto | allow | deny | elicit` picks how throng answers what the harness still asks. This adds a combination that was not possible before: with `harness_mode: auto` and `permission_answers: auto` the harness approves what it can on its own, and its remaining requests come to you as a dialog in Claude Code. `permission_answers: auto` falls back to refusing when the client has no dialogs, for example inside a thronglet. Both keys work globally and per harness. The defaults (`auto` + `deny`) behave like the old default, and `permissions: auto | allow_all | deny_all | elicit` still works as a shorthand, so existing configs need no change. The permission dialog now names the thronglet by its description. See [Permissions](https://github.com/agent-runbooks/throng-mcp/blob/main/docs/configuration.md#permissions).

@@ -117,7 +117,7 @@ Run `gemini` once and sign in; the nested agent uses that login. Checked against
 - One turn per session: Gemini CLI can't resume a session, so `send_message` to it fails with `session_not_found` before anything runs. `steer: true` is refused the same way and leaves the running turn alone; to stop a gemini turn, use `cancel_thronglet` and start a new run. `list_thronglets` shows such a session with `accepts_messages: false`.
 - No effort levels: a `:<effort>` suffix is ignored with a warning.
 - No usage numbers: the result's `usage` stays empty.
-- The `cwd` you give it is trusted for the run (`GEMINI_CLI_TRUST_WORKSPACE=true`), under every permission policy.
+- The `cwd` you give it is trusted for the run (`GEMINI_CLI_TRUST_WORKSPACE=true`), under every permission setting.
 
 </details>
 
@@ -240,12 +240,14 @@ A failure is an MCP tool error with `code`, `message` and, when the session exis
 What a nested agent may do comes from the config file, never from a tool parameter, so the calling model cannot grant itself more than you allowed. Optional `~/.config/throng/config.yaml`:
 
 ```yaml
-permissions: auto
+harness_mode: auto        # auto | ask
+permission_answers: deny  # auto | allow | deny | elicit
 ```
 
-- `auto`, the default: each harness runs in its own auto-approve mode (Claude `auto`, Codex `agent`, OpenCode as configured, Gemini `yolo`); whatever that mode still asks about, throng refuses.
-- `allow_all`: every request allowed, once. `deny_all`: every request refused.
-- `elicit`: each request is shown to you as a dialog in the MCP client, with the one-time choices the harness offered. Needs a client with elicitation support; Claude Code has it.
+- `harness_mode` is the mode the harness runs in: `auto` (the default) is its own auto-approve mode (Claude `auto`, Codex `agent`, OpenCode as configured, Gemini `yolo`), `ask` its asking mode.
+- `permission_answers` is how throng answers what the harness still asks: `deny` (the default) refuses, `allow` allows once, `elicit` shows you a dialog in the MCP client (needs elicitation support; Claude Code has it), `auto` shows the dialog when the client can and refuses otherwise.
+- `harness_mode: auto` with `permission_answers: allow` is effectively bypass.
+- The older `permissions: auto | allow_all | deny_all | elicit` still works as a shorthand for a pair (auto + deny, ask + allow, ask + deny, ask + elicit).
 
 throng never answers "always allow", so no rule gets written into the agent's project settings. Per-harness overrides, extra env for an adapter, timeouts and the nesting limit are in [docs/configuration.md](docs/configuration.md).
 

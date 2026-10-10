@@ -1,10 +1,16 @@
 import type { RequestPermissionRequest, RequestPermissionResponse } from '@agentclientprotocol/sdk';
 import type { ElicitRequestFormParams, ElicitResult } from '@modelcontextprotocol/sdk/types.js';
-import { type Config, customHarnessEntry, type PermissionPolicy } from './config.ts';
+import {
+    type Config,
+    customHarnessEntry,
+    type HarnessMode,
+    type PermissionAnswers,
+    type PermissionPolicy,
+} from './config.ts';
 import { isBuiltinHarness } from './contract.ts';
 import { log } from './log.ts';
 
-// Answers to `session/request_permission` (DESIGN §5): auto, allow_all, deny_all, elicit.
+// Permission settings (DESIGN §5): the harness mode and the answers to `session/request_permission`.
 
 type Outcome = RequestPermissionResponse['outcome'];
 type OptionKind = RequestPermissionRequest['options'][number]['kind'];
@@ -19,6 +25,8 @@ export interface DeciderOptions {
     elicitation?: Elicitation;
     /** `limits.elicitation_s * 1000`. */
     elicitationTimeoutMs: number;
+    /** The thronglet's description, naming it in the elicitation message; empty → `agent`. */
+    description?: string;
 }
 
 /** One answered request, for the server log. `choice` is the selected optionId or `cancelled`. */
@@ -37,16 +45,61 @@ export interface PermissionBridge {
     cancelAll(): void;
 }
 
+/** Resolved permission settings of one harness and the config keys they come from (DESIGN §5). */
+export interface PermissionSettings {
+    mode: HarnessMode;
+    answers: PermissionAnswers;
+    /** Config key `answers` came from, for error messages: `permission_answers`, `harnesses.codex.permissions`, … */
+    answersKey: string;
+}
+
+/** The permission keys of one config place, as parsed. */
+interface PermissionKeys {
+    permissions?: PermissionPolicy | undefined;
+    harness_mode?: HarnessMode | undefined;
+    permission_answers?: PermissionAnswers | undefined;
+}
+
+/** What each `permissions` shorthand value stands for. */
+const SHORTHAND: Record<PermissionPolicy, { mode: HarnessMode; answers: PermissionAnswers }> = {
+    auto: { mode: 'auto', answers: 'deny' },
+    allow_all: { mode: 'ask', answers: 'allow' },
+    deny_all: { mode: 'ask', answers: 'deny' },
+    elicit: { mode: 'ask', answers: 'elicit' },
+};
+
+/** One place's values with the shorthand expanded, each answer with the key it came from. */
+function expand(
+    place: PermissionKeys | undefined,
+    prefix: string
+): { mode?: HarnessMode; answers?: Pick<PermissionSettings, 'answers' | 'answersKey'> } {
+    if (!place) return {};
+    if (place.permissions) {
+        const { mode, answers } = SHORTHAND[place.permissions];
+        return { mode, answers: { answers, answersKey: `${prefix}permissions` } };
+    }
+    return {
+        ...(place.harness_mode ? { mode: place.harness_mode } : {}),
+        ...(place.permission_answers
+            ? { answers: { answers: place.permission_answers, answersKey: `${prefix}permission_answers` } }
+            : {}),
+    };
+}
+
 /**
- * The policy of `harness` and the config key it comes from: the per-harness override, else the global default. Never a
- * tool parameter (DESIGN §5). A custom harness's entry wins over a built-in override of the same id, even when only the
- * latter sets `permissions`.
+ * The permission settings of `harness`: per key, the harness's entry, else the global value, else the default (`auto`
+ * mode, `deny` answers). Config-only, never a tool parameter. The entry is the custom harness's if one exists, else the
+ * built-in override of that id: a custom entry wins even when only the built-in override sets a key.
  */
-export function policySource(config: Config, harness: string): { key: string; policy: PermissionPolicy } {
+export function resolvePermissions(config: Config, harness: string): PermissionSettings {
     const custom = customHarnessEntry(config, harness);
     const entry = custom ?? (isBuiltinHarness(harness) ? config.harnesses[harness] : undefined);
-    if (!entry?.permissions) return { key: 'permissions', policy: config.permissions };
-    return { key: `${custom ? 'custom_harnesses' : 'harnesses'}.${harness}.permissions`, policy: entry.permissions };
+    const own = expand(entry, `${custom ? 'custom_harnesses' : 'harnesses'}.${harness}.`);
+    const global = expand(config, '');
+    return {
+        mode: own.mode ?? global.mode ?? 'auto',
+        ...(own.answers ?? global.answers ?? { answers: 'deny', answersKey: 'permission_answers' }),
+    };
 }
 
 const CANCELLED: Outcome = { outcome: 'cancelled' };
@@ -58,8 +111,8 @@ function pick(request: RequestPermissionRequest, kind: OptionKind): Outcome | un
 }
 
 /**
- * `reject_once` picked by kind (ids differ per agent); without one, `cancelled`. Used by `auto` (decision-4) and
- * `deny_all`: whatever the harness's own auto mode does not approve is refused, so `auto` never widens into allow_all.
+ * `reject_once` picked by kind (ids differ per agent); without one, `cancelled`. The default answer (decision-9): whatever
+ * the harness's own auto mode does not approve is refused, so the default never widens into allowing.
  */
 export const decideReject: Decide = request => Promise.resolve(pick(request, 'reject_once') ?? CANCELLED);
 
@@ -69,10 +122,21 @@ const decideAllow: Decide = request =>
 
 const ONCE_KINDS: readonly OptionKind[] = ['allow_once', 'reject_once'];
 const RAW_INPUT_LIMIT = 2048;
+const DESCRIPTION_LIMIT = 80;
+
+/**
+ * The thronglet's description as one bounded line: it comes from the calling model, and a newline in it could forge the
+ * kind and input lines the human decides by.
+ */
+function descriptionLabel(description: string): string {
+    const line = description.replace(/\s+/g, ' ').trim();
+    if (!line) return 'agent';
+    return line.length > DESCRIPTION_LIMIT ? `${line.slice(0, DESCRIPTION_LIMIT)}…` : line;
+}
 
 /** The elicitation's text (DESIGN §5): title, then kind, rawInput (truncated) and locations when present. */
-function elicitationMessage(toolCall: RequestPermissionRequest['toolCall']): string {
-    const lines = [`[agent] ${toolCall.title ?? toolCall.toolCallId}`];
+function elicitationMessage(toolCall: RequestPermissionRequest['toolCall'], description: string): string {
+    const lines = [`[${descriptionLabel(description)}] ${toolCall.title ?? toolCall.toolCallId}`];
     if (toolCall.kind) lines.push(`kind: ${toolCall.kind}`);
     if (toolCall.rawInput !== undefined) {
         const json = JSON.stringify(toolCall.rawInput);
@@ -87,7 +151,7 @@ function elicitationMessage(toolCall: RequestPermissionRequest['toolCall']): str
 }
 
 /** Asks the human through the MCP client; any failure (timeout, transport gone, bad answer) → `cancelled`. */
-function decideByElicitation(elicitation: Elicitation, timeoutMs: number): Decide {
+function decideByElicitation(elicitation: Elicitation, timeoutMs: number, description: string): Decide {
     return async (request, signal) => {
         const choices = new Map<string, RequestPermissionRequest['options'][number]>();
         for (const option of request.options) {
@@ -99,7 +163,7 @@ function decideByElicitation(elicitation: Elicitation, timeoutMs: number): Decid
             result = await elicitation.ask(
                 {
                     mode: 'form',
-                    message: elicitationMessage(request.toolCall),
+                    message: elicitationMessage(request.toolCall, description),
                     requestedSchema: {
                         type: 'object',
                         properties: {
@@ -131,21 +195,27 @@ function decideByElicitation(elicitation: Elicitation, timeoutMs: number): Decid
     };
 }
 
+/** Whether `answers` route requests to the human: `elicit`, or `auto` when the client has form elicitation. */
+export function elicits(answers: PermissionAnswers, elicitation: Elicitation | undefined): boolean {
+    return answers === 'elicit' || (answers === 'auto' && elicitation !== undefined);
+}
+
 /**
- * The policy's decider. `elicit` without an elicitation answers `cancelled`; run.ts refuses that combination before spawn
- * (`elicitation_unsupported`).
+ * The decider for `answers`. `auto` elicits when it can and rejects otherwise. `elicit` without an elicitation answers
+ * `cancelled`; run.ts refuses that combination before spawn (`elicitation_unsupported`).
  */
-export function deciderFor(policy: PermissionPolicy, opts: DeciderOptions): Decide {
-    switch (policy) {
-        case 'auto':
-        case 'deny_all':
-            return decideReject;
-        case 'allow_all':
+export function deciderFor(answers: PermissionAnswers, opts: DeciderOptions): Decide {
+    if (opts.elicitation && elicits(answers, opts.elicitation)) {
+        return decideByElicitation(opts.elicitation, opts.elicitationTimeoutMs, opts.description ?? '');
+    }
+    switch (answers) {
+        case 'allow':
             return decideAllow;
         case 'elicit':
-            return opts.elicitation
-                ? decideByElicitation(opts.elicitation, opts.elicitationTimeoutMs)
-                : () => Promise.resolve(CANCELLED);
+            return () => Promise.resolve(CANCELLED);
+        case 'auto':
+        case 'deny':
+            return decideReject;
     }
 }
 
@@ -155,13 +225,12 @@ export function isThrongResultCall(toolCall: RequestPermissionRequest['toolCall'
     return title.includes('throng_result') && title.includes('submit_result');
 }
 
-/** `allow_once` for our own submit_result under every policy; `undefined` → the policy decides. */
+/** `allow_once` for our own submit_result under every setting; `undefined` → the answers decide. */
 function allowOwnTool(request: RequestPermissionRequest): Outcome | undefined {
     return isThrongResultCall(request.toolCall) ? pick(request, 'allow_once') : undefined;
 }
 
 export function createPermissionBridge(
-    policy: PermissionPolicy,
     onDecision: (decision: PermissionDecision) => void,
     decide: Decide
 ): PermissionBridge {

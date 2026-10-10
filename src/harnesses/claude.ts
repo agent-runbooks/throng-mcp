@@ -15,5 +15,5 @@ export const claude: HarnessDefinition = {
     registryId: spec.registryId,
     resolve: (config, registry, env) => resolveAdapter(spec, config, registry, env),
     mapEffort: (level, options) => (options.includes(level) ? level : undefined),
-    permissionSetup: policy => ({ modeId: policy === 'auto' ? 'auto' : 'default' }),
+    permissionSetup: mode => ({ modeId: mode === 'auto' ? 'auto' : 'default' }),
 };

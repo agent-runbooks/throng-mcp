@@ -14,6 +14,6 @@ export const opencode: HarnessDefinition = {
     registryId: spec.registryId,
     resolve: (config, registry, env) => resolveAdapter(spec, config, registry, env),
     mapEffort: (level, options) => (options.includes(level) ? level : undefined),
-    // `auto` keeps the user's opencode.json; any other policy routes every tool through request_permission.
-    permissionSetup: policy => (policy === 'auto' ? {} : { env: { OPENCODE_CONFIG_CONTENT: '{"permission":"ask"}' } }),
+    // `auto` keeps the user's opencode.json; `ask` routes every tool through request_permission.
+    permissionSetup: mode => (mode === 'auto' ? {} : { env: { OPENCODE_CONFIG_CONTENT: '{"permission":"ask"}' } }),
 };

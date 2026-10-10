@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { type Config, DEFAULT_CONFIG, type PermissionPolicy } from '../config.ts';
+import { type Config, DEFAULT_CONFIG, type HarnessMode } from '../config.ts';
 import { HARNESS_IDS } from '../contract.ts';
 import {
     HARNESSES,
@@ -261,21 +261,20 @@ describe('mapEffort', () => {
 });
 
 describe('permissionSetup', () => {
-    const policies: PermissionPolicy[] = ['auto', 'allow_all', 'deny_all', 'elicit'];
+    const modes: HarnessMode[] = ['auto', 'ask'];
     const ask = { env: { OPENCODE_CONFIG_CONTENT: '{"permission":"ask"}' } };
     const trust = { GEMINI_CLI_TRUST_WORKSPACE: 'true' };
     const expected = {
-        claude: { auto: { modeId: 'auto' }, other: { modeId: 'default' } },
-        codex: { auto: { modeId: 'agent' }, other: { modeId: 'read-only' } },
-        opencode: { auto: {}, other: ask },
-        gemini: { auto: { modeId: 'yolo', env: trust }, other: { modeId: 'default', env: trust } },
+        claude: { auto: { modeId: 'auto' }, ask: { modeId: 'default' } },
+        codex: { auto: { modeId: 'agent' }, ask: { modeId: 'read-only' } },
+        opencode: { auto: {}, ask },
+        gemini: { auto: { modeId: 'yolo', env: trust }, ask: { modeId: 'default', env: trust } },
     } as const;
 
     for (const id of HARNESS_IDS) {
-        for (const policy of policies) {
-            it(`${id} × ${policy}`, () => {
-                const want = policy === 'auto' ? expected[id].auto : expected[id].other;
-                expect(HARNESSES[id].permissionSetup(policy)).toStrictEqual(want);
+        for (const mode of modes) {
+            it(`${id} × ${mode}`, () => {
+                expect(HARNESSES[id].permissionSetup(mode)).toStrictEqual(expected[id][mode]);
             });
         }
     }

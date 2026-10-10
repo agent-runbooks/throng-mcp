@@ -1,4 +1,4 @@
-import type { Config, PermissionPolicy } from '../config.ts';
+import type { Config, HarnessMode } from '../config.ts';
 import type { Effort } from '../contract.ts';
 
 // HarnessDefinition contract (DESIGN §4.1, decision-3): plain data plus three hooks.
@@ -35,7 +35,7 @@ export type HarnessResolution = { available: true; launch: HarnessLaunch } | { a
 /** A value for `session/set_config_option`: a select option's value id, or the value of a boolean option. */
 export type ConfigOptionValue = string | boolean;
 
-/** How a permission policy is expressed natively. Everything here is per adapter process, so it applies to resumed turns too. */
+/** How a harness mode is expressed natively. Everything here is per adapter process, so it applies to resumed turns too. */
 export interface PermissionSetup {
     modeId?: string;
     env?: Record<string, string>;
@@ -44,7 +44,7 @@ export interface PermissionSetup {
     configOptions?: { id: string; value: ConfigOptionValue }[];
     /** Appended to the launch args of the adapter process. */
     args?: string[];
-    /** Reported on the call's result: the policy could not be expressed natively (a custom harness without `auto_approve`). */
+    /** Reported on the call's result: the mode could not be expressed natively (a custom harness without `auto_mode`). */
     warning?: string;
 }
 
@@ -57,7 +57,8 @@ export interface HarnessDefinition {
     resolve(config: Config, registry: RegistrySnapshot, env?: NodeJS.ProcessEnv): HarnessResolution;
     /** Our effort level → value of the `thought_level` option; `undefined` = not applicable, reported as a warning. */
     mapEffort(level: Effort, options: string[]): string | undefined;
-    permissionSetup(policy: PermissionPolicy): PermissionSetup;
+    /** The native expression of `harness_mode`; the answers to permission requests are not the harness's business. */
+    permissionSetup(mode: HarnessMode): PermissionSetup;
     /** Agent messages outside a turn that are routine for this harness; dropped instead of reported as warnings. */
     preTurnNoise?: RegExp[];
 }

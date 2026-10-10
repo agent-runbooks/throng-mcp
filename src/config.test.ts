@@ -16,7 +16,6 @@ function withFile(name: string, content: string): NodeJS.ProcessEnv {
 describe('loadConfig', () => {
     it('has the DESIGN §8 defaults', () => {
         expect(DEFAULT_CONFIG).toStrictEqual({
-            permissions: 'auto',
             harnesses: {},
             custom_harnesses: {},
             limits: { timeout_s: 21600, handshake_s: 60, elicitation_s: 600, max_concurrency: 10, max_depth: 2 },
@@ -41,10 +40,14 @@ describe('loadConfig', () => {
 
     it('treats sections without a value as absent', () => {
         const loaded = loadConfig(
-            withFile('empty-sections.yaml', 'permissions:\nharnesses:\nlimits:\n  # timeout_s: 10\n')
+            withFile(
+                'empty-sections.yaml',
+                'permissions:\nharness_mode:\npermission_answers:\nharnesses:\nlimits:\n  # timeout_s: 10\n'
+            )
         );
         expect(loaded.error).toBe(undefined);
-        expect(loaded.config).toStrictEqual(DEFAULT_CONFIG);
+        // A key with no value parses as present-but-undefined, the same as absent at resolution.
+        expect(loaded.config).toEqual(DEFAULT_CONFIG);
     });
 
     it('treats a harness entry without a value as an empty override', () => {
@@ -130,12 +133,12 @@ describe('loadConfig: custom harnesses', () => {
                     '    args: [acp]',
                     '    env: { KIMI_X: "1" }',
                     '    permissions: allow_all',
-                    '    auto_approve:',
+                    '    auto_mode:',
                     '      mode: yolo',
                     '      config_options: { permission: bypass, brave_mode: true }',
                     '      args: []',
                     '      env: {}',
-                    '    ask_approval:',
+                    '    ask_mode:',
                     '      mode: default',
                     '  qwen.code_2-x: { command: /opt/qwen }',
                 ].join('\n')
@@ -149,17 +152,17 @@ describe('loadConfig: custom harnesses', () => {
                 args: ['acp'],
                 env: { KIMI_X: '1' },
                 permissions: 'allow_all',
-                auto_approve: {
+                auto_mode: {
                     mode: 'yolo',
                     config_options: { permission: 'bypass', brave_mode: true },
                     args: [],
                     env: {},
                 },
-                ask_approval: { mode: 'default' },
+                ask_mode: { mode: 'default' },
             },
             'qwen.code_2-x': { command: '/opt/qwen' },
         });
-        expect(Object.keys(loaded.config.custom_harnesses.kimi?.auto_approve?.config_options ?? {})).toStrictEqual([
+        expect(Object.keys(loaded.config.custom_harnesses.kimi?.auto_mode?.config_options ?? {})).toStrictEqual([
             'permission',
             'brave_mode',
         ]);
@@ -207,40 +210,116 @@ describe('loadConfig: custom harnesses', () => {
         expect(error).toMatch(/invalid config: harnesses: .*"kimi"/);
     });
 
-    it('rejects auto_approve and ask_approval under harnesses as unknown keys', () => {
+    it('rejects auto_mode and ask_mode under harnesses as unknown keys', () => {
         const error = errorOf(
-            'builtin-approval.yaml',
-            'harnesses:\n  claude: { auto_approve: { mode: x } }\n  codex: { ask_approval: {} }\n'
+            'builtin-mode.yaml',
+            'harnesses:\n  claude: { auto_mode: { mode: x } }\n  codex: { ask_mode: {} }\n'
         );
-        expect(error).toMatch(/harnesses\.claude: .*"auto_approve"/);
-        expect(error).toMatch(/harnesses\.codex: .*"ask_approval"/);
+        expect(error).toMatch(/harnesses\.claude: .*"auto_mode"/);
+        expect(error).toMatch(/harnesses\.codex: .*"ask_mode"/);
     });
 
-    it('rejects an unknown key or a bad value in an approval block', () => {
+    it('rejects auto_approve and ask_approval under custom_harnesses as unknown keys', () => {
+        const error = errorOf(
+            'old-blocks.yaml',
+            'custom_harnesses:\n  kimi: { command: k, auto_approve: { mode: x }, ask_approval: {} }\n'
+        );
+        expect(error).toMatch(/custom_harnesses\.kimi: .*"auto_approve"/);
+        expect(error).toContain('"ask_approval"');
+    });
+
+    it('rejects an unknown key or a bad value in a mode block', () => {
         expect(
-            errorOf('approval-key.yaml', 'custom_harnesses:\n  kimi: { command: k, auto_approve: { bogus: 1 } }\n')
-        ).toMatch(/custom_harnesses\.kimi\.auto_approve: .*"bogus"/);
+            errorOf('mode-key.yaml', 'custom_harnesses:\n  kimi: { command: k, auto_mode: { bogus: 1 } }\n')
+        ).toMatch(/custom_harnesses\.kimi\.auto_mode: .*"bogus"/);
         expect(
             errorOf(
-                'approval-value.yaml',
-                'custom_harnesses:\n  kimi: { command: k, ask_approval: { config_options: { a: 1 } } }\n'
+                'mode-value.yaml',
+                'custom_harnesses:\n  kimi: { command: k, ask_mode: { config_options: { a: 1 } } }\n'
             )
-        ).toContain('custom_harnesses.kimi.ask_approval.config_options.a');
+        ).toContain('custom_harnesses.kimi.ask_mode.config_options.a');
         expect(
-            errorOf('approval-mode.yaml', 'custom_harnesses:\n  kimi: { command: k, ask_approval: { mode: "" } }\n')
-        ).toContain('custom_harnesses.kimi.ask_approval.mode');
+            errorOf('mode-mode.yaml', 'custom_harnesses:\n  kimi: { command: k, ask_mode: { mode: "" } }\n')
+        ).toContain('custom_harnesses.kimi.ask_mode.mode');
         expect(errorOf('custom-key.yaml', 'custom_harnesses:\n  kimi: { command: k, bogus: 1 }\n')).toMatch(
             /custom_harnesses\.kimi: .*"bogus"/
         );
     });
 
-    it('an approval block with no value counts as absent', () => {
+    it('a mode block with no value counts as absent', () => {
         const loaded = loadConfig(
-            withFile('approval-null.yaml', 'custom_harnesses:\n  kimi:\n    command: k\n    auto_approve:\n')
+            withFile('mode-null.yaml', 'custom_harnesses:\n  kimi:\n    command: k\n    auto_mode:\n')
         );
         expect(loaded.error).toBe(undefined);
         expect(loaded.config.custom_harnesses.kimi?.command).toBe('k');
-        expect(loaded.config.custom_harnesses.kimi?.auto_approve).toBe(undefined);
+        expect(loaded.config.custom_harnesses.kimi?.auto_mode).toBe(undefined);
+    });
+});
+
+describe('loadConfig: harness_mode and permission_answers', () => {
+    const CONFLICT =
+        'permissions is a shorthand for harness_mode and permission_answers; set either permissions or those two';
+
+    it('accepts both keys at the root, under harnesses.<id> and custom_harnesses.<id>', () => {
+        const loaded = loadConfig(
+            withFile(
+                'split.yaml',
+                [
+                    'harness_mode: ask',
+                    'permission_answers: elicit',
+                    'harnesses:',
+                    '  codex: { harness_mode: auto }',
+                    '  claude: { permission_answers: allow, permissions: }',
+                    'custom_harnesses:',
+                    '  kimi: { command: k, harness_mode: ask, permission_answers: auto }',
+                ].join('\n')
+            )
+        );
+        expect(loaded.error).toBe(undefined);
+        expect(loaded.config.harness_mode).toBe('ask');
+        expect(loaded.config.permission_answers).toBe('elicit');
+        expect(loaded.config.harnesses.codex).toStrictEqual({ harness_mode: 'auto' });
+        expect(loaded.config.harnesses.claude?.permission_answers).toBe('allow');
+        expect(loaded.config.custom_harnesses.kimi).toMatchObject({ harness_mode: 'ask', permission_answers: 'auto' });
+    });
+
+    it('rejects unknown values with the key', () => {
+        const error = loadConfig(
+            withFile('bad-split.yaml', 'harness_mode: yolo\npermission_answers: allow_all\n')
+        ).error;
+        expect(error).toMatch(/harness_mode: /);
+        expect(error).toMatch(/permission_answers: /);
+    });
+
+    it('permissions next to harness_mode or permission_answers at the same place is an error naming the keys', () => {
+        for (const [name, content, where] of [
+            ['conflict-root.yaml', 'permissions: auto\nharness_mode: ask\n', '(root)'],
+            ['conflict-root-answers.yaml', 'permissions: deny_all\npermission_answers: allow\n', '(root)'],
+            [
+                'conflict-builtin.yaml',
+                'harnesses:\n  codex: { permissions: auto, permission_answers: elicit }\n',
+                'harnesses.codex',
+            ],
+            [
+                'conflict-custom.yaml',
+                'custom_harnesses:\n  kimi: { command: k, permissions: elicit, harness_mode: auto }\n',
+                'custom_harnesses.kimi',
+            ],
+        ] as const) {
+            const loaded = loadConfig(withFile(name, content));
+            expect(loaded.config, name).toStrictEqual(DEFAULT_CONFIG);
+            expect(loaded.error, name).toContain(`invalid config: ${where}: ${CONFLICT}`);
+        }
+    });
+
+    it('permissions at one place and the split keys at another is no conflict', () => {
+        const loaded = loadConfig(
+            withFile(
+                'no-conflict.yaml',
+                'permissions: elicit\nharnesses:\n  codex: { harness_mode: auto }\ncustom_harnesses:\n  kimi: { command: k, permission_answers: deny }\n'
+            )
+        );
+        expect(loaded.error).toBe(undefined);
     });
 });
 

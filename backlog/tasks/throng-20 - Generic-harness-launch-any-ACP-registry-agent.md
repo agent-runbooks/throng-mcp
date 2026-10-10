@@ -1,11 +1,11 @@
 ---
 id: THRONG-20
 title: User-defined harnesses from config
-status: Review
+status: Done
 assignee:
   - '@opus'
 created_date: '2026-10-02 21:22'
-updated_date: '2026-10-10 16:43'
+updated_date: '2026-10-10 20:01'
 labels: []
 milestone: m-3
 dependencies: []
@@ -226,6 +226,8 @@ Deviations: the unknown-harness check moved from parseAgentSpec to run.ts (it ne
 Validation: pnpm typecheck, pnpm lint, pnpm test in the worktree: 27 files, 339 tests (baseline 26/303). Token-free real-adapter check: list_harnesses with user entries my-codex (codex-acp), my-opencode (opencode acp) and my-missing: both probed with the same command, version 2.1.1 / 1.18.34, models and efforts as the natives; my-missing under unavailable as "no-such-acp-agent (harnesses.my-missing.command) not found on PATH"; native rows unchanged. AC #9 (a real turn, auto and allow_all) is the maintainer smoke: no install needed, e.g. a `my-codex: { command: codex-acp, auto_approve: { mode: agent }, ask_approval: { mode: read-only } }` entry.
 
 Round 2 (maintainer review on PR #11): custom harnesses moved to their own `custom_harnesses` section, `harnesses` back to built-in overrides only (a typo like `codx:` is an invalid-key error again); "native" renamed to "built-in" for harness kinds; a custom id equal to a built-in one wins (harnessFor, harnessIds, policySource, list_harnesses) and mcp.ts logs each shadowed id at start. Run .agent-runbooks/runs/20261010-throng-20-2 ended ready. Review: Opus 1, GPT 1. Fixed a1: resolvePolicy had no production caller after policySource replaced it; removed, tests folded into policySource. b1 (GPT): a session created by a shadowing custom harness resumes on the built-in one once the custom entry is removed, because the record keeps only the id. Main-session decision: no new record field; DESIGN §3.3 and the configuration.md troubleshooting row now say the built-in harness takes such a session (its adapter usually answers session_not_found). Validation: pnpm typecheck/lint/test 27 files, 347 tests; token-free list_harnesses probe with custom_harnesses my-codex (codex-acp), opencode (shadowing the built-in: listed once, as the custom one) and my-missing (`no-such-acp-agent (custom_harnesses.my-missing.command) not found on PATH`).
+
+2026-10-10: moved to Done by the maintainer after PR #11 merged. AC #10 (maintainer smoke of a real turn) is left unchecked: no smoke result is recorded here. Since THRONG-29 the auto_approve / ask_approval blocks are auto_mode / ask_mode.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

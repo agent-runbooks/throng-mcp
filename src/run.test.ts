@@ -528,7 +528,7 @@ describe('runThronglet', () => {
     });
 });
 
-describe('permission policies', () => {
+describe('permission settings', () => {
     type Asked = Parameters<Elicitation['ask']>;
 
     /** Answers each ask with `answer`; records what it was asked. */
@@ -553,6 +553,62 @@ describe('permission policies', () => {
         expect(ok(await policyRun('deny_all').run).text).toBe('rejected');
     });
 
+    /** A run under `harness_mode` × `permission_answers` (config root), its calls and what it logged. */
+    async function splitRun(mode: string, answers: string, overrides: Partial<RunContext> = {}) {
+        const callLog = join(mkdtempSync(join(root, 'calls-')), 'calls.jsonl');
+        const { loaded, tag } = fakeClaude('permission', `harness_mode: ${mode}\npermission_answers: ${answers}`, {
+            FAKE_CALL_LOG: callLog,
+        });
+        const outcome = await runThronglet(input('claude/fake-small'), makeCtx(loaded, overrides));
+        const modes = readFakeCalls(callLog).flatMap(c => (c.event === 'set_mode' ? [c.modeId] : []));
+        return { outcome, modes, tag };
+    }
+
+    // The client accepts allow_once, so an elicited request is allowed too; `asked` tells it from `allow`.
+    const answered = { allow: ['allowed', 0], deny: ['rejected', 0], elicit: ['allowed', 1], auto: ['allowed', 1] };
+    for (const mode of ['auto', 'ask'] as const) {
+        for (const [answers, [text, asked]] of Object.entries(answered)) {
+            it(`harness_mode ${mode} × permission_answers ${answers}: mode ${mode === 'auto' ? 'auto' : 'default'}, request ${text}`, async () => {
+                const elicitation = fakeElicitation(() =>
+                    Promise.resolve({ action: 'accept', content: { decision: 'allow_once' } })
+                );
+                const { outcome, modes } = await splitRun(mode, answers, { elicitation });
+                const payload = ok(outcome);
+                expect(payload.text).toBe(text);
+                expect(payload.warnings).toBe(undefined);
+                expect(modes).toStrictEqual([mode === 'auto' ? 'auto' : 'default']);
+                expect(elicitation.asked).toHaveLength(asked as number);
+            });
+        }
+    }
+
+    it('permission_answers auto without an elicitation: rejected, no warning, one log line', async () => {
+        const info = vi.spyOn(log, 'info');
+        try {
+            const progress = recordingProgress();
+            const { outcome, modes } = await splitRun('auto', 'auto', { progress });
+            const payload = ok(outcome);
+            expect(payload.text).toBe('rejected');
+            expect(payload.warnings).toBe(undefined);
+            expect(modes).toStrictEqual(['auto']);
+            expect(progress.calls).not.toContain('tool permission: write notes.txt');
+            const fallback = info.mock.calls.filter(([message]) => message.startsWith('permission_answers auto'));
+            expect(fallback).toHaveLength(1);
+        } finally {
+            info.mockRestore();
+        }
+    });
+
+    it('permission_answers auto with an elicitation: the dialog is shown and its answer reaches the agent', async () => {
+        const decline = fakeElicitation(() => Promise.resolve({ action: 'decline' }));
+        const progress = recordingProgress();
+        const { outcome } = await splitRun('auto', 'auto', { elicitation: decline, progress });
+        expect(ok(outcome).text).toBe('rejected');
+        expect(decline.asked).toHaveLength(1);
+        expect(decline.asked[0]?.[0].message.split('\n')[0]).toBe('[test run] write notes.txt');
+        expect(progress.calls).toContain('tool permission: write notes.txt');
+    });
+
     it('elicit: accept → allowed, decline → rejected; asked with the title and the elicitation_s timeout', async () => {
         const accept = fakeElicitation(() =>
             Promise.resolve({ action: 'accept', content: { decision: 'allow_once' } })
@@ -561,7 +617,7 @@ describe('permission policies', () => {
         expect(ok(await policyRun('elicit', { elicitation: accept, progress }).run).text).toBe('allowed');
         expect(accept.asked).toHaveLength(1);
         const [[params, opts]] = accept.asked as [Asked];
-        expect(params.message.split('\n')[0]).toBe('[agent] write notes.txt');
+        expect(params.message.split('\n')[0]).toBe('[test run] write notes.txt');
         expect(opts.timeoutMs).toBe(600_000);
         expect(progress.calls).toContain('tool permission: write notes.txt');
 
@@ -593,6 +649,26 @@ describe('permission policies', () => {
             'elicitation_unsupported'
         );
         expect(claude.message).toMatch(/set harnesses\.claude\.permissions in/);
+        expect(tagAlive(override.tag)).toBe(false);
+    });
+
+    it('explicit permission_answers elicit without an elicitation → elicitation_unsupported naming the key, no spawn', async () => {
+        const global = await splitRun('auto', 'elicit');
+        const payload = failed(global.outcome, 'elicitation_unsupported');
+        expect(payload.message).toBe(
+            'permission_answers "elicit" needs an MCP client that supports elicitation, and this one does not; set permission_answers in the throng config to auto, allow or deny'
+        );
+        expect(global.modes).toStrictEqual([]);
+        expect(tagAlive(global.tag)).toBe(false);
+
+        const override = fakeClaude('permission', '    permission_answers: elicit');
+        const claude = failed(
+            await runThronglet(input('claude/fake-small'), makeCtx(override.loaded)),
+            'elicitation_unsupported'
+        );
+        expect(claude.message).toMatch(
+            /set harnesses\.claude\.permission_answers in the throng config to auto, allow or deny$/
+        );
         expect(tagAlive(override.tag)).toBe(false);
     });
 
@@ -769,6 +845,27 @@ describe('sendMessage', () => {
         };
         await writeSessionRecord(ctx.cacheDir, sessionId, { ...base, ...fields });
     }
+
+    it('an elicitation names the resumed thronglet by its record description; none → agent', async () => {
+        for (const [description, title] of [
+            ['resumed one', '[resumed one] write notes.txt'],
+            ['', '[agent] write notes.txt'],
+        ] as const) {
+            const { loaded } = fakeClaude('permission', 'permission_answers: elicit');
+            const asked: string[] = [];
+            const ctx = makeCtx(loaded, {
+                elicitation: {
+                    ask: params => {
+                        asked.push(params.message.split('\n')[0] ?? '');
+                        return Promise.resolve({ action: 'accept', content: { decision: 'allow_once' } });
+                    },
+                },
+            });
+            await record(ctx, 'fake-p', { description });
+            expect(ok(await sendMessage({ session_id: 'fake-p', prompt: 'x' }, ctx)).text).toBe('allowed');
+            expect(asked).toStrictEqual([title]);
+        }
+    });
 
     it('follow-up into the same session: memory kept, model and effort re-applied from the record', async () => {
         const { loaded, tag } = fakeClaude('resume-memory', '', {

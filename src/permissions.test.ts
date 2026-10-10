@@ -6,9 +6,10 @@ import {
     createPermissionBridge,
     deciderFor,
     type Elicitation,
+    elicits,
     isThrongResultCall,
     type PermissionDecision,
-    policySource,
+    resolvePermissions,
 } from './permissions.ts';
 
 function request(
@@ -19,7 +20,7 @@ function request(
 }
 
 const submitCall = { toolCallId: 't9', title: 'mcp.throng_result.submit_result', kind: 'other' } as const;
-const auto = deciderFor('auto', { elicitationTimeoutMs: 1000 });
+const deny = deciderFor('deny', { elicitationTimeoutMs: 1000 });
 const fullOptions: RequestPermissionRequest['options'] = [
     { optionId: 'always', name: 'Always', kind: 'allow_always' },
     { optionId: 'yes', name: 'Allow', kind: 'allow_once' },
@@ -32,18 +33,82 @@ const onceOptions: RequestPermissionRequest['options'] = [
 ];
 
 describe('permissions', () => {
-    it('policySource: a per-harness override wins over the global default', () => {
-        const config: Config = {
-            ...DEFAULT_CONFIG,
-            permissions: 'deny_all',
-            harnesses: { codex: { permissions: 'auto' } },
-        };
-        expect(policySource(config, 'codex')).toStrictEqual({ key: 'harnesses.codex.permissions', policy: 'auto' });
-        expect(policySource(config, 'claude')).toStrictEqual({ key: 'permissions', policy: 'deny_all' });
-        expect(policySource(DEFAULT_CONFIG, 'opencode')).toStrictEqual({ key: 'permissions', policy: 'auto' });
+    it('resolvePermissions: the defaults are harness_mode auto and permission_answers deny (= permissions auto)', () => {
+        expect(resolvePermissions(DEFAULT_CONFIG, 'opencode')).toStrictEqual({
+            mode: 'auto',
+            answers: 'deny',
+            answersKey: 'permission_answers',
+        });
+        expect(resolvePermissions(DEFAULT_CONFIG, 'kimi')).toStrictEqual(resolvePermissions(DEFAULT_CONFIG, 'claude'));
     });
 
-    it('policySource: a custom harness entry wins over a built-in override of the same id', () => {
+    it('resolvePermissions: the permissions shorthand expands to its pair, the answers key naming permissions', () => {
+        const expected = {
+            auto: { mode: 'auto', answers: 'deny' },
+            allow_all: { mode: 'ask', answers: 'allow' },
+            deny_all: { mode: 'ask', answers: 'deny' },
+            elicit: { mode: 'ask', answers: 'elicit' },
+        } as const;
+        for (const [policy, pair] of Object.entries(expected)) {
+            const permissions = policy as keyof typeof expected;
+            expect(resolvePermissions({ ...DEFAULT_CONFIG, permissions }, 'claude'), policy).toStrictEqual({
+                ...pair,
+                answersKey: 'permissions',
+            });
+            const entry = { ...DEFAULT_CONFIG, harnesses: { codex: { permissions } } };
+            expect(resolvePermissions(entry, 'codex'), policy).toStrictEqual({
+                ...pair,
+                answersKey: 'harnesses.codex.permissions',
+            });
+            const custom = { ...DEFAULT_CONFIG, custom_harnesses: { kimi: { command: 'kimi', permissions } } };
+            expect(resolvePermissions(custom, 'kimi'), policy).toStrictEqual({
+                ...pair,
+                answersKey: 'custom_harnesses.kimi.permissions',
+            });
+        }
+    });
+
+    it('resolvePermissions: a per-harness value overrides the global one key by key', () => {
+        const config: Config = {
+            ...DEFAULT_CONFIG,
+            permission_answers: 'elicit',
+            harnesses: { codex: { harness_mode: 'ask' } },
+        };
+        expect(resolvePermissions(config, 'codex')).toStrictEqual({
+            mode: 'ask',
+            answers: 'elicit',
+            answersKey: 'permission_answers',
+        });
+        expect(resolvePermissions(config, 'claude')).toStrictEqual({
+            mode: 'auto',
+            answers: 'elicit',
+            answersKey: 'permission_answers',
+        });
+        const answersOnly: Config = {
+            ...DEFAULT_CONFIG,
+            harness_mode: 'ask',
+            harnesses: { codex: { permission_answers: 'allow' } },
+        };
+        expect(resolvePermissions(answersOnly, 'codex')).toStrictEqual({
+            mode: 'ask',
+            answers: 'allow',
+            answersKey: 'harnesses.codex.permission_answers',
+        });
+        // The shorthand on the entry sets both keys, over a global pair.
+        const shorthand: Config = {
+            ...DEFAULT_CONFIG,
+            harness_mode: 'ask',
+            permission_answers: 'allow',
+            harnesses: { codex: { permissions: 'auto' } },
+        };
+        expect(resolvePermissions(shorthand, 'codex')).toStrictEqual({
+            mode: 'auto',
+            answers: 'deny',
+            answersKey: 'harnesses.codex.permissions',
+        });
+    });
+
+    it('resolvePermissions: a custom harness entry wins over a built-in override of the same id', () => {
         const config: Config = {
             ...DEFAULT_CONFIG,
             permissions: 'deny_all',
@@ -51,29 +116,29 @@ describe('permissions', () => {
             custom_harnesses: {
                 claude: { command: 'my-claude', permissions: 'allow_all' },
                 codex: { command: 'my-codex' },
-                kimi: { command: 'kimi', permissions: 'auto' },
+                kimi: { command: 'kimi', harness_mode: 'auto' },
             },
         };
-        expect(policySource(config, 'claude')).toStrictEqual({
-            key: 'custom_harnesses.claude.permissions',
-            policy: 'allow_all',
+        expect(resolvePermissions(config, 'claude')).toStrictEqual({
+            mode: 'ask',
+            answers: 'allow',
+            answersKey: 'custom_harnesses.claude.permissions',
         });
-        expect(policySource(config, 'codex')).toStrictEqual({ key: 'permissions', policy: 'deny_all' });
-        expect(policySource(config, 'kimi')).toStrictEqual({
-            key: 'custom_harnesses.kimi.permissions',
-            policy: 'auto',
+        const global = { mode: 'ask', answers: 'deny', answersKey: 'permissions' };
+        expect(resolvePermissions(config, 'codex')).toStrictEqual(global);
+        expect(resolvePermissions(config, 'kimi')).toStrictEqual({ ...global, mode: 'auto' });
+        expect(resolvePermissions(config, 'opencode')).toStrictEqual(global);
+        expect(resolvePermissions({ ...config, custom_harnesses: {} }, 'claude')).toStrictEqual({
+            mode: 'ask',
+            answers: 'elicit',
+            answersKey: 'harnesses.claude.permissions',
         });
-        expect(policySource(config, 'opencode')).toStrictEqual({ key: 'permissions', policy: 'deny_all' });
-        expect(policySource({ ...config, custom_harnesses: {} }, 'claude')).toStrictEqual({
-            key: 'harnesses.claude.permissions',
-            policy: 'elicit',
-        });
-        expect(policySource(config, 'glm')).toStrictEqual({ key: 'permissions', policy: 'deny_all' });
+        expect(resolvePermissions(config, 'glm')).toStrictEqual(global);
     });
 
-    it('auto rejects: reject_once picked by kind, never reject_always or allow_*, and reports the decision', async () => {
+    it('deny: reject_once picked by kind, never reject_always or allow_*, and reports the decision', async () => {
         const decisions: PermissionDecision[] = [];
-        const bridge = createPermissionBridge('auto', d => decisions.push(d), auto);
+        const bridge = createPermissionBridge(d => decisions.push(d), deny);
         const answer = await bridge.answer(
             request([
                 { optionId: 'always-xyz', name: 'Always', kind: 'allow_always' },
@@ -86,9 +151,9 @@ describe('permissions', () => {
         expect(decisions).toStrictEqual([{ title: 'write notes.txt', kind: 'edit', choice: 'no-def' }]);
     });
 
-    it('auto without a reject_once option answers cancelled', async () => {
+    it('deny without a reject_once option answers cancelled', async () => {
         const decisions: PermissionDecision[] = [];
-        const bridge = createPermissionBridge('auto', d => decisions.push(d), auto);
+        const bridge = createPermissionBridge(d => decisions.push(d), deny);
         const answer = await bridge.answer(
             request([
                 { optionId: 'always', name: 'Always', kind: 'allow_always' },
@@ -107,9 +172,9 @@ describe('permissions', () => {
         expect(isThrongResultCall({ toolCallId: 't' })).toBe(false);
     });
 
-    it('our submit_result is allowed once before the policy; other tools still rejected', async () => {
+    it('our submit_result is allowed once before the answers; other tools still rejected', async () => {
         const decisions: PermissionDecision[] = [];
-        const bridge = createPermissionBridge('auto', d => decisions.push(d), auto);
+        const bridge = createPermissionBridge(d => decisions.push(d), deny);
         expect(await bridge.answer(request(onceOptions, submitCall))).toStrictEqual({
             outcome: { outcome: 'selected', optionId: 'ok' },
         });
@@ -122,8 +187,8 @@ describe('permissions', () => {
         ]);
     });
 
-    it('our submit_result without an allow_once option → the policy answers, never allow_always', async () => {
-        const bridge = createPermissionBridge('auto', () => undefined, auto);
+    it('our submit_result without an allow_once option → the answers decide, never allow_always', async () => {
+        const bridge = createPermissionBridge(() => undefined, deny);
         const answer = await bridge.answer(
             request(
                 [
@@ -140,7 +205,6 @@ describe('permissions', () => {
         const decisions: PermissionDecision[] = [];
         let sawAbort = false;
         const bridge = createPermissionBridge(
-            'auto',
             d => decisions.push(d),
             (_req, signal) =>
                 new Promise(() => {
@@ -159,8 +223,8 @@ describe('permissions', () => {
         expect(decisions.every(d => d.choice === 'cancelled')).toBe(true);
     });
 
-    describe('allow_all', () => {
-        const decide = deciderFor('allow_all', { elicitationTimeoutMs: 1000 });
+    describe('allow', () => {
+        const decide = deciderFor('allow', { elicitationTimeoutMs: 1000 });
         const signal = new AbortController().signal;
 
         it('allow_once picked by kind, never allow_always', async () => {
@@ -183,12 +247,49 @@ describe('permissions', () => {
         });
     });
 
-    it('deny_all: reject_once by kind, else cancelled', async () => {
-        const decide = deciderFor('deny_all', { elicitationTimeoutMs: 1000 });
+    it('deny: reject_once by kind, else cancelled', async () => {
+        const decide = deciderFor('deny', { elicitationTimeoutMs: 1000 });
         const signal = new AbortController().signal;
         expect(await decide(request(fullOptions), signal)).toStrictEqual({ outcome: 'selected', optionId: 'no' });
         expect(await decide(request([{ optionId: 'yes', name: 'Allow', kind: 'allow_once' }]), signal)).toStrictEqual({
             outcome: 'cancelled',
+        });
+    });
+
+    describe('auto', () => {
+        const signal = new AbortController().signal;
+
+        it('with an elicitation: asks, and the answer is the chosen option', async () => {
+            const asked: string[] = [];
+            const decide = deciderFor('auto', {
+                elicitation: {
+                    ask: params => {
+                        asked.push(params.message);
+                        return Promise.resolve({ action: 'accept', content: { decision: 'allow_once' } });
+                    },
+                },
+                elicitationTimeoutMs: 1000,
+                description: 'auto test',
+            });
+            expect(await decide(request(fullOptions), signal)).toStrictEqual({ outcome: 'selected', optionId: 'yes' });
+            expect(asked.map(m => m.split('\n')[0])).toStrictEqual(['[auto test] write notes.txt']);
+        });
+
+        it('without an elicitation: as deny, reject_once by kind, else cancelled', async () => {
+            const decide = deciderFor('auto', { elicitationTimeoutMs: 1000 });
+            expect(await decide(request(fullOptions), signal)).toStrictEqual({ outcome: 'selected', optionId: 'no' });
+            expect(
+                await decide(request([{ optionId: 'yes', name: 'Allow', kind: 'allow_once' }]), signal)
+            ).toStrictEqual({ outcome: 'cancelled' });
+        });
+
+        it('elicits: elicit always, auto only with an elicitation, allow and deny never', () => {
+            const elicitation = { ask: () => Promise.resolve({ action: 'cancel' as const }) };
+            expect(elicits('elicit', undefined)).toBe(true);
+            expect(elicits('auto', elicitation)).toBe(true);
+            expect(elicits('auto', undefined)).toBe(false);
+            expect(elicits('allow', elicitation)).toBe(false);
+            expect(elicits('deny', elicitation)).toBe(false);
         });
     });
 
@@ -209,13 +310,17 @@ describe('permissions', () => {
             };
         }
 
-        const decideWith = (elicitation: Elicitation) =>
-            deciderFor('elicit', { elicitation, elicitationTimeoutMs: 1234 });
+        const decideWith = (elicitation: Elicitation, description?: string) =>
+            deciderFor('elicit', {
+                elicitation,
+                elicitationTimeoutMs: 1234,
+                ...(description !== undefined ? { description } : {}),
+            });
         const signal = new AbortController().signal;
 
         it('form: titled oneOf of the *_once kinds present, first option of each kind; message and timeout', async () => {
             const elicitation = fakeElicitation(() => Promise.resolve({ action: 'cancel' }));
-            await decideWith(elicitation)(
+            await decideWith(elicitation, 'notes writer')(
                 request(
                     [
                         { optionId: 'always', name: 'Always', kind: 'allow_always' },
@@ -239,7 +344,7 @@ describe('permissions', () => {
             expect(params).toStrictEqual({
                 mode: 'form',
                 message: [
-                    '[agent] write notes.txt',
+                    '[notes writer] write notes.txt',
                     'kind: edit',
                     'input: {"path":"notes.txt"}',
                     'locations: /w/notes.txt, /w/b.txt',
@@ -263,9 +368,9 @@ describe('permissions', () => {
             expect(opts.signal).toBe(signal);
         });
 
-        it('message: only the title when nothing else is present; rawInput over 2 KB is truncated and says so', async () => {
+        it('message: [agent] and only the title when nothing else is present; rawInput over 2 KB is truncated', async () => {
             const elicitation = fakeElicitation(() => Promise.resolve({ action: 'cancel' }));
-            const decide = decideWith(elicitation);
+            const decide = decideWith(elicitation, '');
             await decide(request(onceOptions, { toolCallId: 't7' }), signal);
             await decide(
                 request(onceOptions, { toolCallId: 't8', title: 'big', rawInput: { text: 'x'.repeat(5000) } }),
@@ -277,6 +382,24 @@ describe('permissions', () => {
             expect(input.startsWith('input: {"text":"xxx')).toBe(true);
             expect(input).toMatch(/… \(truncated, 5011 chars\)$/);
             expect(input.length).toBeLessThan(2048 + 50);
+        });
+
+        it('message: the description is one line of at most 80 chars; whitespace-only → [agent]', async () => {
+            const elicitation = fakeElicitation(() => Promise.resolve({ action: 'cancel' }));
+            const ask = (description: string) =>
+                decideWith(elicitation, description)(
+                    request(onceOptions, { toolCallId: 't9', title: 'rm -rf build' }),
+                    signal
+                );
+            await ask('notes\nkind: read\ninput: {}');
+            await ask(' \n\t ');
+            await ask('d'.repeat(100));
+            const firstLines = elicitation.asked.map(a => a.params.message.split('\n'));
+            expect(firstLines).toStrictEqual([
+                ['[notes kind: read input: {}] rm -rf build'],
+                ['[agent] rm -rf build'],
+                [`[${'d'.repeat(80)}…] rm -rf build`],
+            ]);
         });
 
         it('accept → the chosen option; decline → reject_once; cancel → cancelled', async () => {
@@ -331,9 +454,9 @@ describe('permissions', () => {
             expect(elicitation.asked).toHaveLength(0);
         });
 
-        it('our submit_result is allowed before the policy, without asking', async () => {
+        it('our submit_result is allowed before the answers, without asking', async () => {
             const elicitation = fakeElicitation(() => Promise.resolve({ action: 'decline' }));
-            const bridge = createPermissionBridge('elicit', () => undefined, decideWith(elicitation));
+            const bridge = createPermissionBridge(() => undefined, decideWith(elicitation));
             expect(await bridge.answer(request(onceOptions, submitCall))).toStrictEqual({
                 outcome: { outcome: 'selected', optionId: 'ok' },
             });
@@ -348,7 +471,7 @@ describe('permissions', () => {
                         opts.signal.addEventListener('abort', () => reject(new Error('aborted')))
                     )
             );
-            const bridge = createPermissionBridge('elicit', d => decisions.push(d), decideWith(elicitation));
+            const bridge = createPermissionBridge(d => decisions.push(d), decideWith(elicitation));
             const pending = bridge.answer(request(fullOptions));
             await new Promise(resolve => setImmediate(resolve));
             expect(elicitation.asked).toHaveLength(1);

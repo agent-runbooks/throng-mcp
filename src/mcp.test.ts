@@ -621,7 +621,7 @@ describe('run_thronglet over stdio', () => {
             expect((payloadOf(result) as RunSuccess).text).toBe('allowed');
             expect(asked).toHaveLength(1);
             const params = asked[0] as ElicitRequestFormParams;
-            expect(params.message.split('\n')[0]).toBe('[agent] write notes.txt');
+            expect(params.message.split('\n')[0]).toBe('[test] write notes.txt');
             expect(params.requestedSchema.properties.decision).toStrictEqual({
                 type: 'string',
                 title: 'Decision',
@@ -650,6 +650,41 @@ describe('run_thronglet over stdio', () => {
             expect(tagAlive(tag)).toBe(false);
         } finally {
             await close();
+        }
+    });
+
+    it('permission_answers auto: asks a client with elicitation, rejects without one, no warning', async () => {
+        const asked: ElicitRequest['params'][] = [];
+        const withDialog = await connect('permission', {}, join(dir, 'cache'), {
+            config: 'permission_answers: auto',
+            onElicit: request => {
+                asked.push(request.params);
+                return { action: 'accept', content: { decision: 'allow_once' } };
+            },
+        });
+        const call = (client: typeof withDialog.client) =>
+            client.callTool({
+                name: 'run_thronglet',
+                arguments: { agent: 'claude/fake-small', prompt: 'hi', cwd: repo, description: 'auto answers' },
+            });
+        try {
+            const result = await call(withDialog.client);
+            expect(result.isError).toBe(undefined);
+            expect((payloadOf(result) as RunSuccess).text).toBe('allowed');
+            expect(asked.map(p => p.message.split('\n')[0])).toStrictEqual(['[auto answers] write notes.txt']);
+        } finally {
+            await withDialog.close();
+        }
+
+        const without = await connect('permission', {}, join(dir, 'cache'), { config: 'permission_answers: auto' });
+        try {
+            const result = await call(without.client);
+            expect(result.isError).toBe(undefined);
+            const payload = payloadOf(result) as RunSuccess;
+            expect(payload.text).toBe('rejected');
+            expect(payload.warnings).toBe(undefined);
+        } finally {
+            await without.close();
         }
     });
 });

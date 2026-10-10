@@ -5,7 +5,7 @@ import { type Effort, ThrongError } from '../contract.ts';
 import type { ConfigOptionValue, HarnessDefinition } from './types.ts';
 
 // Model/effort selection after the handshake (DESIGN §4.1). Options are found by `category`, never by id;
-// the permission policy's config options are the exception, set by the id the harness definition names.
+// the harness mode's config options are the exception, set by the id the harness definition names.
 // An agent without a `model` option may list its models in `session.models` instead (Gemini CLI, DESIGN §2.3).
 
 /** Above this many models the rejection lists only the requested provider's ones. */
@@ -69,7 +69,7 @@ export async function selectModel(worker: Worker, model: string): Promise<void> 
 }
 
 /**
- * Sets one of the permission policy's config options (DESIGN §4.1), best effort: an option the agent does not
+ * Sets one of the harness mode's config options (DESIGN §4.1), best effort: an option the agent does not
  * advertise, or an `agent_error` from the agent, is returned as a warning. Other failures propagate.
  */
 export async function applyConfigOption(
