@@ -1,5 +1,13 @@
 # throng-mcp
 
+## 0.5.0
+
+### Minor Changes
+
+- [#11](https://github.com/agent-runbooks/throng-mcp/pull/11) [`0efa455`](https://github.com/agent-runbooks/throng-mcp/commit/0efa455181e74770bbc8d02b60ede10eda6de173) Thanks [@Nodge](https://github.com/Nodge)! - You can now run any ACP agent, not only the built-in Claude Code, Codex, OpenCode and Gemini CLI. Add the agent to your throng config with the command that starts it, and call it like the others: `kimi/<model>`. If the agent has an auto-approve mode, name it in the config too, and throng switches to it under the default `harness_mode: auto`. See [Custom harnesses](https://github.com/agent-runbooks/throng-mcp/blob/main/docs/configuration.md#custom-harnesses).
+
+- [#12](https://github.com/agent-runbooks/throng-mcp/pull/12) [`8f4080c`](https://github.com/agent-runbooks/throng-mcp/commit/8f4080c45f61e237bbf276e788a2af4b51909b7f) Thanks [@Nodge](https://github.com/Nodge)! - Permissions are now two config keys instead of one. `harness_mode: auto | ask` picks the mode the harness runs in: its own auto-approve mode or its asking mode. `permission_answers: auto | allow | deny | elicit` picks how throng answers what the harness still asks. This adds a combination that was not possible before: with `harness_mode: auto` and `permission_answers: auto` the harness approves what it can on its own, and its remaining requests come to you as a dialog in Claude Code. `permission_answers: auto` falls back to refusing when the client has no dialogs, for example inside a thronglet. Both keys work globally and per harness. The defaults (`auto` + `deny`) behave like the old default, and `permissions: auto | allow_all | deny_all | elicit` still works as a shorthand, so existing configs need no change. The permission dialog now names the thronglet by its description. See [Permissions](https://github.com/agent-runbooks/throng-mcp/blob/main/docs/configuration.md#permissions).
+
 ## 0.4.0
 
 ### Minor Changes
