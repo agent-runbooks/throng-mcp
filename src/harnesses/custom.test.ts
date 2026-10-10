@@ -481,6 +481,20 @@ describe('a custom harness with a built-in id', () => {
         expect(payload.message).toContain('set custom_harnesses.claude.permissions in the throng config');
     });
 
+    it('once the custom entry is gone, its sessions go to the built-in harness (DESIGN §3.3)', async () => {
+        const custom = fakeCustomClaude('echo');
+        const first = ok(await runThronglet(input('claude/fake-small'), custom.ctx));
+
+        // The same cache under a config without custom_harnesses.claude: the built-in claude, whose adapter is not on PATH.
+        const { loaded } = h.fakeAs('codex', 'echo');
+        const ctx = h.makeCtx(loaded, { cacheDir: custom.ctx.cacheDir });
+        const payload = failed(
+            await sendMessage({ session_id: first.session_id, prompt: 'x' }, ctx),
+            'harness_unavailable'
+        );
+        expect(payload.message).toMatch(/^claude-agent-acp not found on PATH; install: /);
+    });
+
     it('list_harnesses: one claude row, the custom one', async () => {
         const { loaded, tag } = fakeCustomClaude('echo');
         const out = await listHarnesses(loaded, { handshakeMs: 5000, depth: 0, env: { PATH: bin } });

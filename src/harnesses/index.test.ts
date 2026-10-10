@@ -125,7 +125,7 @@ describe('harnessFor and harnessIds', () => {
             args: ['acp'],
             env: {},
         });
-        expect(harnessIds(shadowing)).toStrictEqual(['codex', 'opencode', 'gemini', 'kimi', 'claude']);
+        expect(harnessIds(shadowing)).toStrictEqual([...HARNESS_IDS, 'kimi']);
         expect(shadowedHarnesses(shadowing)).toStrictEqual(['claude']);
         expect(shadowedHarnesses(config)).toStrictEqual([]);
     });

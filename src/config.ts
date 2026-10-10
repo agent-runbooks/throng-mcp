@@ -85,6 +85,11 @@ export type Config = z.infer<typeof configSchema>;
 
 export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze(configSchema.parse({}));
 
+/** `custom_harnesses.<id>`, own keys only: an id like `constructor` must not reach Object.prototype. */
+export function customHarnessEntry(config: Config, id: string): CustomHarnessEntry | undefined {
+    return Object.hasOwn(config.custom_harnesses, id) ? config.custom_harnesses[id] : undefined;
+}
+
 export interface LoadedConfig {
     config: Config;
     /** One line with the path and the yaml/zod message; the config is then the defaults. */

@@ -5,7 +5,7 @@ status: Review
 assignee:
   - '@opus'
 created_date: '2026-10-02 21:22'
-updated_date: '2026-10-10 16:22'
+updated_date: '2026-10-10 16:43'
 labels: []
 milestone: m-3
 dependencies: []
@@ -50,7 +50,7 @@ Both blocks take mode, config_options, args, env. No effort mapping and no pre-t
 - [x] #2 A custom harness whose command is not found: run_thronglet fails with harness_unavailable before spawn, naming the command and its config key, without an install hint; list_harnesses lists it under unavailable with the same reason. An agent spec whose harness is neither built-in nor custom fails with harness_unavailable listing the valid harness ids
 - [x] #3 Policy auto applies `auto_approve`, the other policies apply `ask_approval`: `mode` via session/set_mode (strict, as for built-in harnesses), `config_options` via session/set_config_option (best effort with warnings, as in THRONG-21), `args` appended to the launch args, `env` merged into the adapter env; applied after session/new and after session/resume. Policy auto without `auto_approve` runs in the agent's starting mode and the result carries a warning naming `custom_harnesses.<id>.auto_approve`. Answers to request_permission follow DESIGN §5 unchanged
 - [x] #4 Model and effort on a custom harness: model through the `model` config option or the session `models` list with session/set_model; a model not offered → model_rejected; effort is set only when the `thought_level` option offers exactly that value, otherwise a warning
-- [x] #5 A custom harness session works with send_message, wait_thronglet, list_thronglets and cancel_thronglet like a built-in one; send_message to a session whose harness is no longer configured fails with harness_unavailable before spawn
+- [x] #5 A custom harness session works with send_message, wait_thronglet, list_thronglets and cancel_thronglet like a built-in one; send_message to a session whose harness is no longer configured fails with harness_unavailable before spawn, unless its id is also a built-in one: then the built-in harness takes the session (DESIGN §3.3)
 - [x] #6 Built-in harnesses behave exactly as before: their config keys, list_harnesses output and existing tests are unchanged
 - [x] #7 A custom id equal to a built-in id wins: runs, list_harnesses, policy lookup and resumed sessions use the custom definition, and the server logs at start that the built-in harness is shadowed
 - [x] #8 Tests via test/fake-agent cover: launch with command/args/env from config, auto_approve mode and config options, the missing auto_approve warning, ask_approval under allow_all, model and effort, command not found, unknown harness id, a resumed turn, a custom id shadowing a built-in one

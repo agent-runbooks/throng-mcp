@@ -1,6 +1,6 @@
 import type { RequestPermissionRequest, RequestPermissionResponse } from '@agentclientprotocol/sdk';
 import type { ElicitRequestFormParams, ElicitResult } from '@modelcontextprotocol/sdk/types.js';
-import type { Config, PermissionPolicy } from './config.ts';
+import { type Config, customHarnessEntry, type PermissionPolicy } from './config.ts';
 import { isBuiltinHarness } from './contract.ts';
 import { log } from './log.ts';
 
@@ -43,7 +43,7 @@ export interface PermissionBridge {
  * latter sets `permissions`.
  */
 export function policySource(config: Config, harness: string): { key: string; policy: PermissionPolicy } {
-    const custom = Object.hasOwn(config.custom_harnesses, harness) ? config.custom_harnesses[harness] : undefined;
+    const custom = customHarnessEntry(config, harness);
     const entry = custom ?? (isBuiltinHarness(harness) ? config.harnesses[harness] : undefined);
     if (!entry?.permissions) return { key: 'permissions', policy: config.permissions };
     return { key: `${custom ? 'custom_harnesses' : 'harnesses'}.${harness}.permissions`, policy: entry.permissions };
