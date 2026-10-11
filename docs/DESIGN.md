@@ -123,7 +123,19 @@ input: {
 output: same as run_thronglet; session_id stays the same
 ```
 
-Harness, model, effort and `cwd` come from the session record (§8): the caller doesn't repeat them. A custom harness that is no longer in the config fails the turn with `harness_unavailable` before spawn, unless its id is also a built-in one: the record names only the id, so the built-in harness then takes the session (its adapter usually rejects the foreign session id with `session_not_found`). Every turn runs in a fresh adapter process that picks the session up via `session/resume` (no history replay), or via `session/load` for a harness whose definition opts into it (`continueViaLoad`, §4.1: Cursor) when the agent advertises `loadSession` and not resume; the nested session keeps its own context. `session/load` replays the history before it answers; those updates are dropped, so they reach neither `text` nor `warnings`. Since the adapter process is new, the permission mode, model and effort are applied again after `session/resume` or `session/load`, exactly as after `session/new`. Unknown id, or the harness can't continue the session → tool error `session_not_found`. The session record keeps whether the session can be continued, as the handshake that created it showed (`resumable`, §8); a session recorded as `resumable: false` (Gemini CLI, [harnesses.md](harnesses.md#gemini-cli)) is one turn, and `send_message` to it fails before any guard, lock or adapter process. A record without the field (written by an earlier version) gets the same error from the next turn's handshake when its adapter can't continue it.
+Harness, model, effort and `cwd` come from the session record (§8); the caller doesn't repeat them.
+
+Every turn runs in a fresh adapter process that picks the session up; the nested session keeps its own context:
+
+- `session/resume` when the agent advertises it (no history replay).
+- `session/load` when the harness definition opts into it (`continueViaLoad`, §4.1; Cursor) and the agent advertises `loadSession` but not resume. Load replays the history before it answers; throng drops those updates, so they reach neither `text` nor `warnings`.
+- Either way the process is new, so the permission mode, model and effort are applied again, exactly as after `session/new`.
+
+When the session can't be continued:
+
+- Unknown id, or the harness can't continue the session → tool error `session_not_found`.
+- The record keeps whether the session can be continued, as the handshake that created it showed (`resumable`, §8). A session recorded as `resumable: false` (Gemini CLI, [harnesses.md](harnesses.md#gemini-cli)) is one turn: `send_message` to it fails before any guard, lock or adapter process. A record without the field (written by an earlier version) gets the same error from the next turn's handshake.
+- A custom harness that is no longer in the config fails the turn with `harness_unavailable` before spawn, unless its id is also a built-in one: the record names only the id, so the built-in harness then takes the session (its adapter usually rejects the foreign session id with `session_not_found`).
 
 **Queue.** Turns on one session are serialized by throng: a message that arrives while a turn runs waits for `stop` and starts the next turn, FIFO, one message = one turn with its own `schema` and `timeout_s`. Never two adapter processes on one session. The adapters don't serialize themselves: a concurrent `session/prompt` reaches the model in all three, but the request/response pairing breaks differently in each, and codex-acp never answers the first prompt (spike 2026-10-02, THRONG-9 notes). A synchronous `send_message` on a busy session waits in the queue (progress reports it) and returns when the session is idle again, like `wait_thronglet`. The wait counts toward neither `timeout_s` nor `duration_s`.
 
@@ -256,20 +268,9 @@ Layers: `mcp/` knows about MCP and nothing else calls it; `run.ts` gets progress
 
 ### 4.1 Harnesses and discovery
 
-throng-mcp ships no adapters and no harnesses (decision-3). The user installs both; throng finds them on PATH:
+throng-mcp ships no adapters and no harnesses (decision-3). The user installs both; throng finds them on PATH.
 
-| | claude | codex | opencode | gemini | cursor |
-|---|---|---|---|---|---|
-| registry id | `claude-acp` | `codex-acp` | `opencode` | `gemini` | `cursor` |
-| adapter on PATH | `claude-agent-acp` | `codex-acp` | `opencode acp` | `gemini --acp` | `cursor-agent acp` |
-| install hint | `npm i -g @agentclientprotocol/claude-agent-acp` | `npm i -g @agentclientprotocol/codex-acp` | opencode install docs | `npm i -g @google/gemini-cli` | `curl https://cursor.com/install -fsS \| bash` |
-| harness on PATH | `claude` → `CLAUDE_CODE_EXECUTABLE` | `codex` → `CODEX_PATH` | same binary | same binary | same binary |
-| auth | — | — | — | — | `authenticate cursor_login` after `initialize` |
-| model | option category `model` | option category `model` | option category `model` | `models` list + `session/set_model` | option category `model`; a name resolves to its bracketed value |
-| effort | option `thought_level`; exact | `thought_level`; `max → xhigh` | `thought_level` if present; otherwise warning | none; always a warning | none; always a warning |
-| `harness_mode: auto` | mode `auto` | mode `agent` | opencode.json defaults | mode `yolo` | launch flag `--force` |
-| `harness_mode: ask` | mode `default` | mode `read-only` (asks the client) | `OPENCODE_CONFIG_CONTENT={"permission":"ask"}` | mode `default` | no flag |
-| continuation (§3.3) | `session/resume` | `session/resume` | `session/resume` | none: one turn | `session/load` |
+How each built-in harness is wired (registry id, adapter command, install hint, auth, model, effort, both harness modes, continuation) is tabled in [harnesses.md](harnesses.md#overview).
 
 Gemini runs with `GEMINI_CLI_TRUST_WORKSPACE=true` under both harness modes, not only `auto`: without it the folder is untrusted, `yolo` is refused and the `submit_result` server (§6) never starts. The caller chose `cwd`, and nobody is there to answer a trust dialog.
 
@@ -277,7 +278,7 @@ Availability is decided by the adapter command only. Adapter not on PATH → `un
 
 Install hints for npm adapters come from `distribution.npx.package` of the registry snapshot with its version dropped: the user installs the latest adapter, `list_harnesses` shows which one. OpenCode and Cursor ship as binaries, so their hints are fixed: OpenCode's install docs, Cursor's install script. `npm i -g --omit=optional` skips the platform packages (~500 MB for both adapters, decision-1); it's safe only with the harness on PATH and isn't documented.
 
-`data/registry.json` is a verbatim snapshot of the ACP registry. It supplies the install hints of the built-in harnesses; commands come from the table above.
+`data/registry.json` is a verbatim snapshot of the ACP registry. It supplies the install hints of the built-in harnesses; commands come from the harness definitions.
 
 Config (§8) can override `command`/`args`/`env` per harness, e.g. to point at an adapter outside PATH.
 

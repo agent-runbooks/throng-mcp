@@ -2,13 +2,21 @@
 
 How each built-in harness behaves under throng: what you will notice when you use it, and what its CLI or ACP adapter does over ACP. Install and login are in the [README](../README.md#2-the-agents-to-run); custom harnesses in [configuration.md](configuration.md#custom-harnesses). The facts below were checked against the versions named in each section; newer releases may differ.
 
-| harness | ACP command | `send_message` | effort | usage |
-|---|---|---|---|---|
-| `claude` | `claude-agent-acp` | `session/resume` | `thought_level` option | tokens and cost |
-| `codex` | `codex-acp` | `session/resume` | `thought_level` option | tokens |
-| `opencode` | `opencode acp` | `session/resume` | model variants, where the model has them | tokens and cost |
-| `gemini` | `gemini --acp` | no: one turn per session | none | none |
-| `cursor` | `cursor-agent acp` | `session/load` | none (part of the model value) | none |
+## Overview
+
+| | claude | codex | opencode | gemini | cursor |
+|---|---|---|---|---|---|
+| registry id | `claude-acp` | `codex-acp` | `opencode` | `gemini` | `cursor` |
+| adapter on PATH | `claude-agent-acp` | `codex-acp` | `opencode acp` | `gemini --acp` | `cursor-agent acp` |
+| install hint | `npm i -g @agentclientprotocol/claude-agent-acp` | `npm i -g @agentclientprotocol/codex-acp` | opencode install docs | `npm i -g @google/gemini-cli` | `curl https://cursor.com/install -fsS \| bash` |
+| harness on PATH | `claude` → `CLAUDE_CODE_EXECUTABLE` | `codex` → `CODEX_PATH` | same binary | same binary | same binary |
+| auth | — | — | — | — | `authenticate cursor_login` after `initialize` |
+| model | option category `model` | option category `model` | option category `model` | `models` list + `session/set_model` | option category `model`; a name resolves to its bracketed value |
+| effort | option `thought_level`; exact | `thought_level`; `max → xhigh` | `thought_level` if present; otherwise warning | none; always a warning | none; always a warning |
+| `harness_mode: auto` | mode `auto` | mode `agent` | opencode.json defaults | mode `yolo` | launch flag `--force` |
+| `harness_mode: ask` | mode `default` | mode `read-only` (asks the client) | `OPENCODE_CONFIG_CONTENT={"permission":"ask"}` | mode `default` | no flag |
+| `send_message` | `session/resume` | `session/resume` | `session/resume` | none: one turn | `session/load` |
+| usage | tokens and cost | tokens | tokens and cost | none | none |
 
 ## Claude Code
 

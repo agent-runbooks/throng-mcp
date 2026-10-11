@@ -254,9 +254,10 @@ harness_mode: auto        # auto | ask
 permission_answers: deny  # auto | allow | deny | elicit
 ```
 
-- `harness_mode` is the mode the harness runs in: `auto` (the default) is its own auto-approve mode (Claude `auto`, Codex `agent`, OpenCode as configured, Gemini `yolo`, Cursor `--force`), `ask` its asking mode. throng answers only what a harness asks: Cursor edits files without asking in either mode.
+- `harness_mode` is the mode the harness runs in: `auto` (the default) is its own auto-approve mode (Claude `auto`, Codex `agent`, OpenCode as configured, Gemini `yolo`, Cursor `--force`), `ask` its asking mode.
 - `permission_answers` is how throng answers what the harness still asks: `deny` (the default) refuses, `allow` allows once, `elicit` shows you a dialog in the MCP client (needs elicitation support; Claude Code has it), `auto` shows the dialog when the client can and refuses otherwise.
 - `harness_mode: auto` with `permission_answers: allow` is effectively bypass.
+- Both settings govern what a harness asks about. Some harnesses act without asking: Cursor CLI applies file edits on its own in either mode ([docs/harnesses.md](docs/harnesses.md#cursor-cli)).
 - The older `permissions: auto | allow_all | deny_all | elicit` still works as a shorthand for a pair (auto + deny, ask + allow, ask + deny, ask + elicit).
 
 throng never answers "always allow", so no rule gets written into the agent's project settings. Per-harness overrides, extra env for an adapter, timeouts and the nesting limit are in [docs/configuration.md](docs/configuration.md).
