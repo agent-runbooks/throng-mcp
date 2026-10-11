@@ -1,5 +1,13 @@
 # throng-mcp
 
+## 0.6.0
+
+### Minor Changes
+
+- [#19](https://github.com/agent-runbooks/throng-mcp/pull/19) [`fcf9252`](https://github.com/agent-runbooks/throng-mcp/commit/fcf92528293952db8a5295bbff212a5e03b9a906) Thanks [@Nodge](https://github.com/Nodge)! - Cursor CLI as a harness: `cursor/<model>` runs your installed Cursor CLI with its own login, so the models of your Cursor subscription are available, Composer included. Install it with `curl https://cursor.com/install -fsS | bash` and run `agent login` once. After that `list_harnesses` shows its models. Follow-ups work: `send_message` and `steer: true` continue a Cursor session. Note that Cursor applies file edits on its own, whatever `harness_mode` and `permission_answers` say. Those settings cover only what it asks about: shell commands, MCP tools and web search. See [Cursor CLI](https://github.com/agent-runbooks/throng-mcp/blob/main/docs/harnesses.md#cursor-cli).
+
+- [#19](https://github.com/agent-runbooks/throng-mcp/pull/19) [`fcf9252`](https://github.com/agent-runbooks/throng-mcp/commit/fcf92528293952db8a5295bbff212a5e03b9a906) Thanks [@Nodge](https://github.com/Nodge)! - A model can now be given by its name alone when the harness lists a single variant of it, for example `cursor/gpt-5.4-nano` for `gpt-5.4-nano[reasoning=medium]`. This works for every harness. When a name fits several variants, the error lists them.
+
 ## 0.5.0
 
 ### Minor Changes
