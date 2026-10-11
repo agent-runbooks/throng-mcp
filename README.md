@@ -112,7 +112,7 @@ npm i -g @google/gemini-cli
 gemini
 ```
 
-Run `gemini` once and sign in; the nested agent uses that login. Its limits under throng: [docs/harnesses.md](docs/harnesses.md#gemini-cli).
+Gemini CLI needs a Gemini API key ([Google AI Studio](https://aistudio.google.com/apikey)) or Vertex: run `gemini` once, choose "Use Gemini API Key" and paste the key, or set `GEMINI_API_KEY`. The nested agent uses that key. Signing in with a personal Google account no longer works for Gemini CLI. Its limits under throng: [docs/harnesses.md](docs/harnesses.md#gemini-cli).
 
 </details>
 
@@ -201,7 +201,7 @@ Agents pick skills up at session start, so open a new session after installing.
 
 ### Check
 
-In a new session, ask the agent to call `list_harnesses`. It starts each installed adapter without a prompt (seconds, no tokens) and lists every available harness with its models and effort levels; `unavailable` names what is missing, and for a built-in harness how to install it. If a run then fails during the handshake, the usual cause is auth: `claude auth status`, `codex login`, `opencode auth login`, `gemini` (sign in once), `agent login` (Cursor). More in [troubleshooting](docs/configuration.md#troubleshooting).
+In a new session, ask the agent to call `list_harnesses`. It starts each installed adapter without a prompt (seconds, no tokens) and lists every available harness with its models and effort levels; `unavailable` names what is missing, and for a built-in harness how to install it. If a run then fails during the handshake, the usual cause is auth: `claude auth status`, `codex login`, `opencode auth login`, `gemini` (set the API key once), `agent login` (Cursor). More in [troubleshooting](docs/configuration.md#troubleshooting).
 
 Before the first run, two things to know. The agent edits the directory you name, with your user's rights; throng adds no isolation and rolls nothing back. Give it only trees you would let an agent edit unattended, and give parallel writers a worktree each.
 

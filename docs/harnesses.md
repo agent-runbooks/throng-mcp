@@ -51,7 +51,7 @@ OpenCode 1.18.x (`opencode acp`):
 
 ## Gemini CLI
 
-Gemini CLI 0.61.0 (`gemini --acp`; facts read from the source on 2026-10-03, bundled ACP SDK 0.16.1; handshake, modes, trust and `set_model` also checked live with an invalid API key, a real model turn was never run, so expect rough edges and please report them).
+Gemini CLI 0.63.0 (`gemini --acp`; facts read from the 0.61.0 source on 2026-10-03, bundled ACP SDK 0.16.1; full turns run on 0.63.0 with a Gemini API key on 2026-10-10, THRONG-27).
 
 What you notice:
 
@@ -59,15 +59,16 @@ What you notice:
 - No effort levels: a `:<effort>` suffix is ignored with a warning.
 - No usage numbers: the result's `usage` stays empty.
 - The `cwd` you give it is trusted for the run (`GEMINI_CLI_TRUST_WORKSPACE=true`), under every permission setting.
+- On the free API tier each model has a small daily request quota; once it is spent, runs on that model fail with `agent_error` and Gemini's message, and another model from `list_harnesses` still works. Free-tier requests can also take a minute or two each.
 
 Over ACP:
 
 - No config options at all. Models come through the unstable `models` field of `session/new` (`availableModels[].modelId`, `currentModelId`; the list depends on the account, `auto` is always there) and are set with the unstable `session/set_model`, which accepts any string without checking. No effort knob over ACP.
-- No `session/resume` (no `sessionCapabilities`). `session/load` exists but replays the whole history as notifications and does not wait for the replay; throng doesn't use it.
+- No `session/resume` (no `sessionCapabilities`). `session/load` exists, but its response does not wait for the replay (checked in the 0.63.0 source): `streamHistory` runs unawaited, so at most the first replayed `session/update` precedes the response and the rest follows it, with no marker where the replay ends. The ACP spec requires the response only after the whole replay, and Cursor's continuation through `session/load` relies on that. throng doesn't use it for Gemini (decision-10); the upstream fix is google-gemini/gemini-cli#29708.
 - Modes: `default | autoEdit | yolo | plan`. Every `set_mode` is echoed as an agent message `[MODE_UPDATE] <mode>`, listed in the definition's `preTurnNoise` ([DESIGN §4.1](DESIGN.md#41-harnesses-and-discovery)). Folder trust is on by default: in an untrusted folder `set_mode yolo` fails and no MCP servers start, those from `session/new` included. `GEMINI_CLI_TRUST_WORKSPACE=true` trusts the folder for the process.
 - `request_permission` always offers `allow_once` and `reject_once`. In mode `default` read-only tools run without asking; edits, shell and MCP tools ask.
 - No `usage_update`, no `PromptResponse.usage`, no cost: token counts sit only in `PromptResponse._meta.quota`, which throng does not read.
-- Auth is Google-account OAuth, an API key or Vertex; `session/new` fails with `-32000` when there is none. The OAuth terms forbid using that login from third-party software, so Gemini is reached only through its own CLI.
+- Auth is a Gemini API key or Vertex; `session/new` fails with `-32000` when there is none. The CLI still offers Google-account sign-in, but for personal accounts the server refuses it ("This client is no longer supported for Gemini Code Assist for individuals", 2026-10-10). The OAuth terms forbid using that login from third-party software anyway, so Gemini is reached only through its own CLI.
 
 ## Cursor CLI
 
