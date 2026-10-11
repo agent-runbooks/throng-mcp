@@ -162,12 +162,19 @@ describe('smoke script against the fake agent', () => {
 
     it('--steer: a busy background run is steered, the reply has STEERED, list shows idle', async () => {
         // The fake's reply `you said: <first> | <steer prompt>` echoes the steer prompt, which has the word STEERED.
-        const { code, stdout, stderr, tag } = await smoke(['claude/fake-small', '--steer'], 'steer', bin, {
-            FAKE_MEMORY_DIR: mkdtempSync(join(dir, 'memory-')),
-        });
+        // The fake turn is busy at once; real harnesses get the default delay.
+        const { code, stdout, stderr, tag } = await smoke(
+            ['claude/fake-small', '--steer', '--steer-delay', '0'],
+            'steer',
+            bin,
+            {
+                FAKE_MEMORY_DIR: mkdtempSync(join(dir, 'memory-')),
+            }
+        );
         expect(code, stdout + stderr).toBe(0);
         expect(stdout).toMatch(/run_thronglet agent=claude\/fake-small .* background, then steer$/m);
         expect(stdout).toMatch(/PASS: run_thronglet background accepted/);
+        expect(stdout).toMatch(/^\d+\. wait 0 s for the turn to get busy$/m);
         expect(stdout).toMatch(/send_message session_id=\S+ steer/);
         expect(stdout).toMatch(/PASS: send_message steer answered STEERED/);
         expect(stdout).toMatch(/PASS: list_thronglets shows the session idle/);
@@ -202,6 +209,21 @@ describe('smoke script against the fake agent', () => {
         expect(stdout).toMatch(/PASS: pong\.txt written/);
         expect(stdout).toMatch(/follow-up step skipped: gemini has no session\/resume, so no send_message/);
         expect(stdout).not.toMatch(/\. send_message/);
+        expect(stdout).toMatch(/PASS: no orphans/);
+        expect(tagAlive(tag), 'fake agent left running').toBe(false);
+    });
+
+    it('cursor: the follow-up goes through session/load and answers pong.txt', async () => {
+        const { code, stdout, stderr, tag } = await smoke(
+            ['cursor/default', '--prompt', 'x'],
+            'cursor-write-pong',
+            bin,
+            {},
+            'cursor'
+        );
+        expect(code, stdout + stderr).toBe(0);
+        expect(stdout).toMatch(/PASS: pong\.txt written/);
+        expect(stdout).toMatch(/PASS: send_message answered pong\.txt/);
         expect(stdout).toMatch(/PASS: no orphans/);
         expect(tagAlive(tag), 'fake agent left running').toBe(false);
     });

@@ -37,7 +37,12 @@ export async function probeHarness(
     try {
         cwd = await mkdtemp(join(tmpdir(), `throng-probe-${def.id}-`));
         worker = await startWorker(
-            { ...launch, cwd, depth: opts.depth },
+            {
+                ...launch,
+                cwd,
+                depth: opts.depth,
+                ...(def.authMethodId !== undefined ? { authMethodId: def.authMethodId } : {}),
+            },
             { kind: 'new', cwd, mcpServers: [] },
             { onPermission: () => Promise.resolve({ outcome: { outcome: 'cancelled' } }) },
             { handshakeMs: opts.handshakeMs, exitGraceMs: 1000 }

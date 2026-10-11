@@ -24,7 +24,7 @@ harnesses:
   #   args: [acp]                              # replaces the default args
   #   env: { X: "1" }
   # gemini:
-  #   permissions: deny_all                    # the shorthand per harness; ids: claude, codex, opencode, gemini
+  #   permissions: deny_all                    # the shorthand per harness; ids: claude, codex, opencode, gemini, cursor
 
 # Other ACP agents, all optional (see Custom harnesses below).
 custom_harnesses:
@@ -98,8 +98,8 @@ Two settings, from the config only, never from a tool parameter, so the calling 
 
 `harness_mode` is the mode throng puts the harness in:
 
-- `auto` (default): the harness's own auto-approve mode (Claude `auto`, Codex `agent`, OpenCode as configured, Gemini `yolo`). It decides most actions itself and asks about the rest.
-- `ask`: its asking mode (Claude `default`, Codex `read-only`, OpenCode with every permission set to `ask`, Gemini `default`). Edits, shell and MCP tools are asked about.
+- `auto` (default): the harness's own auto-approve mode (Claude `auto`, Codex `agent`, OpenCode as configured, Gemini `yolo`, Cursor `--force`). It decides most actions itself and asks about the rest.
+- `ask`: its asking mode (Claude `default`, Codex `read-only`, OpenCode with every permission set to `ask`, Gemini `default`, Cursor without `--force`). Edits, shell and MCP tools are asked about; Cursor asks about shell, MCP tools and web search, never about edits.
 
 `permission_answers` is how throng answers what the harness asks:
 
@@ -136,13 +136,15 @@ Claude Code has no auto mode for some models (haiku, for one) and falls back to 
 
 Gemini CLI runs with its workspace trusted (`GEMINI_CLI_TRUST_WORKSPACE=true`) under both harness modes: in an untrusted folder it refuses `yolo` and starts no MCP servers, throng's `submit_result` included. In its `default` mode read-only tools run without asking; edits, shell and MCP tools ask.
 
+Cursor CLI applies file edits without asking under both harness modes. throng answers only the requests a harness sends, so even `ask` + `deny` lets Cursor edit the `cwd`; only shell, MCP tools and web search reach `permission_answers`.
+
 ## Auth
 
-The nested harness uses whatever login its CLI has. If `claude auth status` says not logged in, put `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`) into `harnesses.claude.env` as in the config above. Codex, OpenCode and Gemini CLI use their own logins: `codex login`, `opencode auth login`, and a first run of `gemini` to sign in. OpenCode custom providers live in your `~/.config/opencode/opencode.json`; throng doesn't touch it.
+The nested harness uses whatever login its CLI has. If `claude auth status` says not logged in, put `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`) into `harnesses.claude.env` as in the config above. Codex, OpenCode, Gemini CLI and Cursor CLI use their own logins: `codex login`, `opencode auth login`, a first run of `gemini` to sign in, and `agent login` (Cursor; throng then calls its `authenticate` itself). OpenCode custom providers live in your `~/.config/opencode/opencode.json`; throng doesn't touch it.
 
 ## Effort
 
-The `:<effort>` suffix of the agent spec is taken as effort only when it is `low | medium | high | xhigh | max`, so a model name with its own `:tag` stays intact. Claude takes the level as is; Codex too, with `max` falling back to `xhigh` if absent. OpenCode's ACP adapter exposes no effort option (1.18.31), so a suffix there only produces a warning. Gemini CLI has no effort knob over ACP either: always a warning. An effort the harness doesn't offer is a warning, not an error.
+The `:<effort>` suffix of the agent spec is taken as effort only when it is `low | medium | high | xhigh | max`, so a model name with its own `:tag` stays intact. Claude takes the level as is; Codex too, with `max` falling back to `xhigh` if absent. OpenCode's ACP adapter exposes no effort option (1.18.31), so a suffix there only produces a warning. Gemini CLI and Cursor CLI have no effort knob over ACP either: always a warning. Cursor carries effort inside its model values (`gpt-5.4-nano[reasoning=medium]`): pick the value you want from `list_harnesses`. An effort the harness doesn't offer is a warning, not an error.
 
 ## Troubleshooting
 
@@ -151,8 +153,8 @@ The `:<effort>` suffix of the agent spec is taken as effort only when it is `low
 | `harness_unavailable` | the adapter isn't on PATH, and the message carries the install command; or the config is broken (message starts with `config error:`): fix the yaml, throng won't run on defaults |
 | `harness_unavailable` on a custom harness | `<command> (custom_harnesses.<id>.command) not found on PATH`: install the agent or fix `command` (a name on PATH or a path). `Unknown harness "<id>"`: the id is neither built in nor in the config; the message lists the valid ones. A session whose custom harness has since left the config gets the same error from `send_message`, unless its id is a built-in one: then the built-in harness gets the message |
 | `elicitation_unsupported` | `permission_answers: elicit` (or `permissions: elicit`), globally or per harness, but the MCP client has no elicitation support; the message names the key. Use a client that has it, or set the key to another value (`permission_answers: auto` asks when it can and rejects otherwise) |
-| `model_rejected` | the model isn't one of the harness's values. Call `list_harnesses` for the current list; they are the harness's own option values and change with harness versions |
-| `handshake_timeout`, `spawn_failed`, `handshake_failed` | the message includes the adapter's stderr. Usual cause is auth: check `claude auth status` (or set `CLAUDE_CODE_OAUTH_TOKEN` in config), `codex login`, `opencode auth login`, `gemini` (sign in once). Slow first start: raise `limits.handshake_s` |
+| `model_rejected` | the model isn't one of the harness's values. Call `list_harnesses` for the current list; they are the harness's own option values and change with harness versions. A name before the `[` of a value (`cursor/gpt-5.4-nano` for `gpt-5.4-nano[reasoning=medium]`) works only when one value has that name |
+| `handshake_timeout`, `spawn_failed`, `handshake_failed` | the message includes the adapter's stderr. Usual cause is auth: check `claude auth status` (or set `CLAUDE_CODE_OAUTH_TOKEN` in config), `codex login`, `opencode auth login`, `gemini` (sign in once), `agent login` (Cursor: "Authentication required. Please run 'agent login' first"). Slow first start: raise `limits.handshake_s` |
 | `empty_result` | the agent ended its turn without saying anything; the harness's own session log shows what it did |
 | `timeout` | raise `timeout_s` for the call or `limits.timeout_s`. The payload keeps `session_id` and any partial `text` |
 | anything else | the server log (stderr of the server; the MCP client decides where it ends up), then the harness's session log by `session_id`. throng keeps no transcripts |

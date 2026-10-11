@@ -65,7 +65,9 @@
         "smoke:opencode": "node scripts/smoke/smoke.ts opencode/openrouter/z-ai/glm-5.3-flash",
         "smoke:opencode-schema": "node scripts/smoke/smoke.ts opencode/openrouter/z-ai/glm-5.3-flash --schema",
         "smoke:gemini": "node scripts/smoke/smoke.ts gemini/auto",
-        "smoke:gemini-schema": "node scripts/smoke/smoke.ts gemini/auto --schema"
+        "smoke:gemini-schema": "node scripts/smoke/smoke.ts gemini/auto --schema",
+        "smoke:cursor": "node scripts/smoke/smoke.ts cursor/default",
+        "smoke:cursor-schema": "node scripts/smoke/smoke.ts cursor/default --schema"
     },
     "devDependencies": {
         "@agentclientprotocol/sdk": "^1.5.0",

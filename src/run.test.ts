@@ -320,7 +320,7 @@ describe('runThronglet', () => {
         const { loaded } = fakeClaude('echo');
         const nope = failed(await runThronglet(input('nope/pro'), makeCtx(loaded)), 'harness_unavailable');
         expect(nope.message).toBe(
-            'Unknown harness "nope" in agent spec "nope/pro"; valid harnesses: claude, codex, opencode, gemini'
+            'Unknown harness "nope" in agent spec "nope/pro"; valid harnesses: claude, codex, opencode, gemini, cursor'
         );
         const upper = failed(await runThronglet(input('Claude/opus-5-5'), makeCtx(loaded)), 'harness_unavailable');
         expect(upper.message).toContain('"Claude"');
@@ -735,7 +735,7 @@ describe('permission setup: config options and launch args', () => {
     const summary = (calls: FakeCall[]) =>
         calls.map(c => {
             if (c.event === 'start') return 'start';
-            const r = c.resumed ? '^' : '';
+            const r = 'resumed' in c && c.resumed ? '^' : '';
             if (c.event === 'set_mode') return `${r}set_mode ${c.modeId}`;
             if (c.event === 'set_config_option')
                 return `${r}set_config_option ${c.configId}=${JSON.stringify(c.value)}`;
@@ -944,7 +944,7 @@ describe('sendMessage', () => {
                 'session_not_found'
             );
             expect(payload.message).toBe(
-                'session fake-one-turn cannot take another message: the claude harness has no session/resume, so its sessions are one turn'
+                "session fake-one-turn cannot take another message: the claude harness can't continue a session, so its sessions are one turn"
             );
             expect(payload.session_id).toBe(undefined);
         }

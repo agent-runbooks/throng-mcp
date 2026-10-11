@@ -10,7 +10,7 @@ An MCP server that lets your agent hand work to another one. Any MCP client can 
 - **Background work.** Several agents run at once while you carry on.
 - **Answers by schema.** Pass a JSON Schema and the result comes back as data that fits it, not prose to parse: a list of findings, a verdict, a plan, ready to feed into the next step.
 
-Supported harnesses: Claude Code, Codex, OpenCode (and every model it can reach), Gemini CLI. Setup for each is under [Install](#2-the-agents-to-run).
+Supported harnesses: Claude Code, Codex, OpenCode (and every model it can reach), Gemini CLI, Cursor CLI. Setup for each is under [Install](#2-the-agents-to-run).
 
 Any other ACP agent can be described in the config as a custom harness: its command, and the mode or options that make it auto-approve or ask. throng installs nothing for it and guesses nothing; see [Custom harnesses](docs/configuration.md#custom-harnesses).
 
@@ -112,12 +112,21 @@ npm i -g @google/gemini-cli
 gemini
 ```
 
-Run `gemini` once and sign in; the nested agent uses that login. Checked against Gemini CLI 0.61.0 only up to the first model request (handshake, models, modes); a full turn has not been run yet, so expect rough edges and please report them. Limits:
+Run `gemini` once and sign in; the nested agent uses that login. Its limits under throng: [docs/harnesses.md](docs/harnesses.md#gemini-cli).
 
-- One turn per session: Gemini CLI can't resume a session, so `send_message` to it fails with `session_not_found` before anything runs. `steer: true` is refused the same way and leaves the running turn alone; to stop a gemini turn, use `cancel_thronglet` and start a new run. `list_thronglets` shows such a session with `accepts_messages: false`.
-- No effort levels: a `:<effort>` suffix is ignored with a warning.
-- No usage numbers: the result's `usage` stays empty.
-- The `cwd` you give it is trusted for the run (`GEMINI_CLI_TRUST_WORKSPACE=true`), under every permission setting.
+</details>
+
+<details>
+<summary><strong>Cursor CLI</strong></summary>
+
+Cursor CLI speaks ACP itself (`cursor-agent acp`), so there is no adapter.
+
+```bash
+curl https://cursor.com/install -fsS | bash
+agent login
+```
+
+throng finds `cursor-agent` on PATH and authenticates with the login `agent login` saved; without that login every run fails with `handshake_failed` and Cursor's message asking to run `agent login`. Its limits under throng: [docs/harnesses.md](docs/harnesses.md#cursor-cli).
 
 </details>
 
@@ -192,7 +201,7 @@ Agents pick skills up at session start, so open a new session after installing.
 
 ### Check
 
-In a new session, ask the agent to call `list_harnesses`. It starts each installed adapter without a prompt (seconds, no tokens) and lists every available harness with its models and effort levels; `unavailable` names what is missing, and for a built-in harness how to install it. If a run then fails during the handshake, the usual cause is auth: `claude auth status`, `codex login`, `opencode auth login`, `gemini` (sign in once). More in [troubleshooting](docs/configuration.md#troubleshooting).
+In a new session, ask the agent to call `list_harnesses`. It starts each installed adapter without a prompt (seconds, no tokens) and lists every available harness with its models and effort levels; `unavailable` names what is missing, and for a built-in harness how to install it. If a run then fails during the handshake, the usual cause is auth: `claude auth status`, `codex login`, `opencode auth login`, `gemini` (sign in once), `agent login` (Cursor). More in [troubleshooting](docs/configuration.md#troubleshooting).
 
 Before the first run, two things to know. The agent edits the directory you name, with your user's rights; throng adds no isolation and rolls nothing back. Give it only trees you would let an agent edit unattended, and give parallel writers a worktree each.
 
@@ -205,6 +214,7 @@ claude/opus:max
 codex/gpt-6-sol:xhigh
 opencode/openrouter/z-ai/glm-5.3-flash
 gemini/gemini-2.5-pro
+cursor/gpt-5.4-nano
 ```
 
 The model is one of the harness's own values; `list_harnesses` has the current list. Effort is `low | medium | high | xhigh | max`; omitted means the harness default.
@@ -244,9 +254,10 @@ harness_mode: auto        # auto | ask
 permission_answers: deny  # auto | allow | deny | elicit
 ```
 
-- `harness_mode` is the mode the harness runs in: `auto` (the default) is its own auto-approve mode (Claude `auto`, Codex `agent`, OpenCode as configured, Gemini `yolo`), `ask` its asking mode.
+- `harness_mode` is the mode the harness runs in: `auto` (the default) is its own auto-approve mode (Claude `auto`, Codex `agent`, OpenCode as configured, Gemini `yolo`, Cursor `--force`), `ask` its asking mode.
 - `permission_answers` is how throng answers what the harness still asks: `deny` (the default) refuses, `allow` allows once, `elicit` shows you a dialog in the MCP client (needs elicitation support; Claude Code has it), `auto` shows the dialog when the client can and refuses otherwise.
 - `harness_mode: auto` with `permission_answers: allow` is effectively bypass.
+- Both settings govern what a harness asks about. Some harnesses act without asking: Cursor CLI applies file edits on its own in either mode ([docs/harnesses.md](docs/harnesses.md#cursor-cli)).
 - The older `permissions: auto | allow_all | deny_all | elicit` still works as a shorthand for a pair (auto + deny, ask + allow, ask + deny, ask + elicit).
 
 throng never answers "always allow", so no rule gets written into the agent's project settings. Per-harness overrides, extra env for an adapter, timeouts and the nesting limit are in [docs/configuration.md](docs/configuration.md).
@@ -254,6 +265,7 @@ throng never answers "always allow", so no rule gets written into the agent's pr
 ## Documentation
 
 - [docs/configuration.md](docs/configuration.md): the config file, environment variables, permissions in detail, auth, troubleshooting.
+- [docs/harnesses.md](docs/harnesses.md): how each harness behaves under throng, its limits and quirks.
 - [DESIGN §3](docs/DESIGN.md#3-external-contract): the exact inputs, results, error codes and stop reasons of every tool.
 - [skills/throng/SKILL.md](skills/throng/SKILL.md): working patterns for the calling agent.
 - [docs/development.md](docs/development.md): for maintainers; tests, smoke runs against real harnesses, files on disk.

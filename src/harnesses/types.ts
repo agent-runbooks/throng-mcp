@@ -59,6 +59,10 @@ export interface HarnessDefinition {
     mapEffort(level: Effort, options: string[]): string | undefined;
     /** The native expression of `harness_mode`; the answers to permission requests are not the harness's business. */
     permissionSetup(mode: HarnessMode): PermissionSetup;
+    /** `authenticate` method sent after `initialize` when the agent lists it in `authMethods` (Cursor: `cursor_login`). */
+    authMethodId?: string;
+    /** Continue sessions through `session/load` when the agent advertises `loadSession` but not `sessionCapabilities.resume`. */
+    continueViaLoad?: boolean;
     /** Agent messages outside a turn that are routine for this harness; dropped instead of reported as warnings. */
     preTurnNoise?: RegExp[];
 }

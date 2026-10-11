@@ -14,7 +14,7 @@ export const gemini: HarnessDefinition = {
     id: spec.id,
     registryId: spec.registryId,
     resolve: (config, registry, env) => resolveAdapter(spec, config, registry, env),
-    // Gemini CLI exposes no thought_level option (DESIGN §2.3).
+    // Gemini CLI exposes no thought_level option (docs/harnesses.md).
     mapEffort: () => undefined,
     // Trust under both modes: an untrusted folder refuses `yolo` and starts no MCP servers, throng's submit_result included.
     permissionSetup: mode => ({

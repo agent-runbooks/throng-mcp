@@ -84,6 +84,7 @@ describe('registry and PATH lookup', () => {
             'codex-acp',
             'opencode',
             'gemini',
+            'cursor',
         ]);
     });
 });
@@ -269,6 +270,7 @@ describe('permissionSetup', () => {
         codex: { auto: { modeId: 'agent' }, ask: { modeId: 'read-only' } },
         opencode: { auto: {}, ask },
         gemini: { auto: { modeId: 'yolo', env: trust }, ask: { modeId: 'default', env: trust } },
+        cursor: { auto: { args: ['--force'] }, ask: {} },
     } as const;
 
     for (const id of HARNESS_IDS) {

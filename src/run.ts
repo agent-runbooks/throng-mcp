@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Collector } from './acp/collector.ts';
 import type { WorkerHooks } from './acp/types.ts';
-import { startWorker } from './acp/worker.ts';
+import { continuation, startWorker } from './acp/worker.ts';
 import { type AgentSpec, formatAgentSpec } from './agent-spec.ts';
 import type { LoadedConfig } from './config.ts';
 import {
@@ -256,7 +256,7 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
             const schemaPath = join(structuredDir, 'schema.json');
             outPath = join(structuredDir, 'result.json');
             await writeFile(schemaPath, JSON.stringify(call.schema));
-            // No `type`: ACP stdio servers have none, and claude-agent-acp treats only such entries as stdio (DESIGN §2.3).
+            // No `type`: ACP stdio servers have none, and claude-agent-acp treats only such entries as stdio (docs/harnesses.md).
             // The absolute node path: ACP wants one, and codex gives MCP servers a whitelisted env without our PATH.
             mcpServers.push({
                 name: 'throng_result',
@@ -293,6 +293,7 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
                     env: { ...launch.env, ...setup.env },
                     cwd: target.cwd,
                     depth: ctx.depth,
+                    ...(def.authMethodId !== undefined ? { authMethodId: def.authMethodId } : {}),
                 },
                 request.kind === 'new'
                     ? {
@@ -301,7 +302,13 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
                           mcpServers,
                           ...(setup.newSessionMeta ? { meta: setup.newSessionMeta } : {}),
                       }
-                    : { kind: 'resume', sessionId: request.sessionId, cwd: target.cwd, mcpServers },
+                    : {
+                          kind: 'resume',
+                          sessionId: request.sessionId,
+                          cwd: target.cwd,
+                          mcpServers,
+                          ...(def.continueViaLoad ? { allowLoad: true } : {}),
+                      },
                 hooks,
                 {
                     handshakeMs: config.limits.handshake_s * 1000,
@@ -324,7 +331,7 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
                 description: request.description,
                 created_at: createdAt,
                 last_used_at: createdAt,
-                resumable: worker.session.agentCapabilities?.sessionCapabilities?.resume != null,
+                resumable: continuation(worker.session.agentCapabilities, def.continueViaLoad === true) !== undefined,
                 turn_started_at: createdAt,
                 turn_pid: process.pid,
             }).catch((err: unknown) => {

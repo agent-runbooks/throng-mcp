@@ -7,7 +7,7 @@ import type { Worker } from '../acp/types.ts';
 import { startWorker } from '../acp/worker.ts';
 import { ThrongError } from '../contract.ts';
 import { HARNESSES } from './index.ts';
-import { modelRejectedMessage, optionByCategory, selectEffort, selectModel } from './select.ts';
+import { modelRejectedMessage, optionByCategory, resolveModel, selectEffort, selectModel } from './select.ts';
 
 const tags: string[] = [];
 afterAll(() => {
@@ -32,14 +32,22 @@ function isAlive(pid: number): boolean {
 /** Runs `body` with a fake-agent worker; always closes it and checks the adapter is gone. */
 async function withWorker(
     scenario: FakeScenario,
-    body: (worker: Worker, turn: (text: string) => Promise<string>) => Promise<void>
+    body: (worker: Worker, turn: (text: string) => Promise<string>) => Promise<void>,
+    env: Record<string, string> = {}
 ) {
     const spawn = fakeAgentSpawn(scenario);
     tags.push(spawn.tag);
     const collector = new Collector();
     const cwd = process.cwd();
     const worker = await startWorker(
-        { command: spawn.command, args: spawn.args, env: spawn.env, cwd, depth: 0 },
+        {
+            command: spawn.command,
+            args: spawn.args,
+            env: { ...spawn.env, ...env },
+            cwd,
+            depth: 0,
+            ...(scenario.startsWith('cursor') ? { authMethodId: 'cursor_login' } : {}),
+        },
         { kind: 'new', cwd, mcpServers: [] },
         {
             onUpdate: n => collector.handle(n),
@@ -140,6 +148,48 @@ describe('modelRejectedMessage', () => {
     });
 });
 
+describe('resolveModel', () => {
+    const values = ['default[]', 'gpt-5.4-nano[reasoning=medium]', 'opus[effort=low]', 'opus[effort=high]', 'opus'];
+
+    it('an exact value wins, also over bracketed values of the same name', () => {
+        expect(resolveModel('gpt-5.4-nano[reasoning=medium]', values)).toBe('gpt-5.4-nano[reasoning=medium]');
+        expect(resolveModel('opus', values)).toBe('opus');
+    });
+
+    it('a name before the bracket resolves to its only value', () => {
+        expect(resolveModel('gpt-5.4-nano', values)).toBe('gpt-5.4-nano[reasoning=medium]');
+        expect(resolveModel('default', values)).toBe('default[]');
+    });
+
+    it('an ambiguous name → model_rejected naming its values', () => {
+        const without = values.filter(v => v !== 'opus');
+        try {
+            resolveModel('opus', without);
+            expect.unreachable('opus resolved');
+        } catch (err) {
+            expect(err).toBeInstanceOf(ThrongError);
+            expect((err as ThrongError).code).toBe('model_rejected');
+            expect((err as ThrongError).message).toBe(
+                'model "opus" names several values; pick one: opus[effort=low], opus[effort=high]'
+            );
+        }
+    });
+
+    it('an unknown name → model_rejected with the list', () => {
+        const without = values.filter(v => v !== 'opus');
+        for (const model of ['gpt-5.4', 'nano', 'gpt-5.4-nano[reasoning=low]']) {
+            try {
+                resolveModel(model, without);
+                expect.unreachable(`${model} resolved`);
+            } catch (err) {
+                expect(err).toBeInstanceOf(ThrongError);
+                expect((err as ThrongError).code).toBe('model_rejected');
+                expect((err as ThrongError).message).toBe(modelRejectedMessage(model, without));
+            }
+        }
+    });
+});
+
 describe('selectModel / selectEffort (fake agent)', () => {
     it('selectModel sets an offered model', async () => {
         await withWorker('echo', async (worker, turn) => {
@@ -174,6 +224,37 @@ describe('selectModel / selectEffort (fake agent)', () => {
             );
             expect(await turn('hi')).toBe('echo: hi [model=gemini-2.5-pro effort=?]');
         });
+    });
+
+    it('selectModel with a model option: a name before the bracket sets the listed value', async () => {
+        await withWorker('cursor', async (worker, turn) => {
+            await selectModel(worker, 'fake-small');
+            expect(await turn('hi')).toBe('echo: hi [model=fake-small[effort=low] effort=?]');
+            const err = await rejectsWith(selectModel(worker, 'fake-big'), 'model_rejected');
+            expect(err.message).toBe(
+                'model "fake-big" names several values; pick one: fake-big[reasoning=low], fake-big[reasoning=high]'
+            );
+        });
+    });
+
+    it('selectModel without a model option: a name before the bracket resolves against session.models', async () => {
+        const models = {
+            availableModels: [{ modelId: 'gemini-x[thinking=on]' }, { modelId: 'gemini-y' }],
+            currentModelId: 'gemini-y',
+        };
+        await withWorker(
+            'gemini',
+            async (worker, turn) => {
+                await selectModel(worker, 'gemini-x');
+                expect(worker.session.models?.current).toBe('gemini-x[thinking=on]');
+                expect(await turn('hi')).toBe('echo: hi [model=gemini-x[thinking=on] effort=?]');
+                const err = await rejectsWith(selectModel(worker, 'gemini-z'), 'model_rejected');
+                expect(err.message).toBe(
+                    'model "gemini-z" is not available; valid models: gemini-x[thinking=on], gemini-y'
+                );
+            },
+            { FAKE_MODELS: JSON.stringify(models) }
+        );
     });
 
     it('selectModel with neither a model option nor models → model_rejected', async () => {

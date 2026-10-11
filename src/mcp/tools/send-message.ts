@@ -42,7 +42,7 @@ export function sendMessage(input: SendMessageInput, ctx: RunContext): Promise<R
                 if (record.resumable === false) {
                     throw new ThrongError(
                         'session_not_found',
-                        `session ${input.session_id} cannot take another message: the ${record.harness} harness has no session/resume, so its sessions are one turn`
+                        `session ${input.session_id} cannot take another message: the ${record.harness} harness can't continue a session, so its sessions are one turn`
                     );
                 }
                 return { kind: 'resume', sessionId: input.session_id, record };
@@ -64,7 +64,7 @@ export function register(server: McpServer, env: ToolEnv): void {
                 'one session never overlap. ' +
                 BACKGROUND_NOTE +
                 ' steer: true interrupts the running turn and delivers this message next; queued messages follow it. ' +
-                'A session whose harness cannot resume takes no further message, steer included: list_thronglets shows ' +
+                'A session its harness cannot continue (resume or load) takes no further message, steer included: list_thronglets shows ' +
                 'it as accepts_messages: false.',
             inputSchema,
         },

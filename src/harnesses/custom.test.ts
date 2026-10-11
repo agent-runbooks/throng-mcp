@@ -207,7 +207,7 @@ const summary = (calls: FakeCall[]) =>
             const probes = Object.fromEntries(Object.entries(c.probes ?? {}).sort(([a], [b]) => a.localeCompare(b)));
             return `start ${JSON.stringify(c.argv.slice(1))} ${JSON.stringify(probes)}`;
         }
-        const r = c.resumed ? '^' : '';
+        const r = 'resumed' in c && c.resumed ? '^' : '';
         if (c.event === 'set_mode') return `${r}set_mode ${c.modeId}`;
         if (c.event === 'set_config_option') return `${r}set_config_option ${c.configId}=${JSON.stringify(c.value)}`;
         if (c.event === 'set_model') return `${r}set_model ${c.modelId}`;
@@ -347,7 +347,7 @@ describe('custom harness runs (fake agent)', () => {
         const loaded = yaml(['custom_harnesses:', '  kimi: { command: kimi }', '  qwen.code: { command: qwen }']);
         const payload = failed(await runThronglet(input('glm/x:high'), h.makeCtx(loaded)), 'harness_unavailable');
         expect(payload.message).toBe(
-            'Unknown harness "glm" in agent spec "glm/x:high"; valid harnesses: claude, codex, opencode, gemini, kimi, qwen.code'
+            'Unknown harness "glm" in agent spec "glm/x:high"; valid harnesses: claude, codex, opencode, gemini, cursor, kimi, qwen.code'
         );
     });
 
@@ -381,7 +381,7 @@ describe('custom harness runs (fake agent)', () => {
             'harness_unavailable'
         );
         expect(payload.message).toBe(
-            `Unknown harness "kimi" in session ${first.session_id}; valid harnesses: claude, codex, opencode, gemini`
+            `Unknown harness "kimi" in session ${first.session_id}; valid harnesses: claude, codex, opencode, gemini, cursor`
         );
         expect(payload.session_id).toBe(undefined);
         expect(tagAlive(tag)).toBe(false);
@@ -425,7 +425,7 @@ describe('list_harnesses with custom harnesses', () => {
             efforts: ['low', 'high'],
             version: '0.0.1',
         });
-        expect(out.unavailable.map(u => u.harness)).toStrictEqual(['claude', 'codex', 'opencode', 'gemini']);
+        expect(out.unavailable.map(u => u.harness)).toStrictEqual(['claude', 'codex', 'opencode', 'gemini', 'cursor']);
         expect(tagAlive(tag), 'probed fake agent still running').toBe(false);
     });
 
@@ -437,7 +437,7 @@ describe('list_harnesses with custom harnesses', () => {
         ]);
         const out = await listHarnesses(loaded, { handshakeMs: 5000, depth: 0, env: { PATH: bin } });
         expect(out.harnesses).toStrictEqual([]);
-        expect(out.unavailable.slice(4)).toStrictEqual([
+        expect(out.unavailable.slice(5)).toStrictEqual([
             { harness: 'kimi', reason: 'kimi-acp (custom_harnesses.kimi.command) not found on PATH' },
             {
                 harness: 'zed-agent',
@@ -451,7 +451,7 @@ describe('list_harnesses with custom harnesses', () => {
         writeFileSync(path, 'custom_harnesses:\n  kimi: {}\n');
         const loaded = loadConfig({ THRONG_MCP_CONFIG: path });
         const out = await listHarnesses(loaded, { handshakeMs: 5000, depth: 0, env: { PATH: bin } });
-        expect(out.unavailable.map(u => u.harness)).toStrictEqual(['claude', 'codex', 'opencode', 'gemini']);
+        expect(out.unavailable.map(u => u.harness)).toStrictEqual(['claude', 'codex', 'opencode', 'gemini', 'cursor']);
         expect(out.unavailable[0]?.reason).toMatch(
             /^config error: .*custom_harnesses\.kimi\.command: Invalid input: expected string, received undefined$/
         );
@@ -528,7 +528,7 @@ describe('a custom harness with a built-in id', () => {
             command: [process.execPath, expect.stringMatching(/agent\.ts$/), `--tag=${tag}`],
             models: ['fake-small', 'fake-large'],
         });
-        expect(out.unavailable.map(u => u.harness)).toStrictEqual(['codex', 'opencode', 'gemini']);
+        expect(out.unavailable.map(u => u.harness)).toStrictEqual(['codex', 'opencode', 'gemini', 'cursor']);
     });
 });
 

@@ -7,7 +7,9 @@ import { parseArgs } from 'node:util';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+import { DEFAULT_EXIT_GRACE_MS } from '../../src/acp/worker.ts';
 import { parseAgentSpec } from '../../src/agent-spec.ts';
+import { resolveModel } from '../../src/harnesses/select.ts';
 import type {
     CancelThrongletOutput,
     ListHarnessesOutput,
@@ -26,14 +28,15 @@ import type {
 // With --cancel the run goes to the background and is cancelled right away (DESIGN §3.7, §3.8): list_thronglets shows it
 // running, cancel_thronglet stops it, wait_thronglet returns `cancelled`, list_thronglets shows it failed; the pong.txt
 // and follow-up checks are skipped.
-// With --steer the run goes to the background on a prompt that keeps it busy, and a send_message with `steer: true`
-// interrupts it (DESIGN §3.3): its reply must contain STEERED, then list_thronglets shows the session idle; the pong.txt
-// and follow-up checks are skipped.
-// Gemini CLI has no session/resume (DESIGN §2.3): for harness gemini the follow-up is skipped and --steer is a usage error.
+// With --steer the run goes to the background on a prompt that keeps it busy, and once the turn has had time to start
+// its tool call a send_message with `steer: true` interrupts it (DESIGN §3.3): its reply must contain STEERED, then
+// list_thronglets shows the session idle; the pong.txt and follow-up checks are skipped.
+// Gemini CLI has no session/resume (docs/harnesses.md): for harness gemini the follow-up is skipped and --steer is a usage error.
+// Cursor CLI continues a session through session/load, so its follow-up and --steer run like the others.
 // Spends tokens: run by hand, one harness at a time. Exit: 0 pass, 1 any FAIL or tool error, 2 usage/availability.
 
 const USAGE =
-    'usage: node scripts/smoke/smoke.ts <harness>/<model>[:<effort>] [--prompt "<text>"] [--cwd <dir>] [--timeout <s>] [--no-follow-up] [--schema] [--background] [--cancel] [--steer]';
+    'usage: node scripts/smoke/smoke.ts <harness>/<model>[:<effort>] [--prompt "<text>"] [--cwd <dir>] [--timeout <s>] [--no-follow-up] [--schema] [--background] [--cancel] [--steer [--steer-delay <s>]]';
 const DEFAULT_PROMPT =
     'Create a file named pong.txt in the current directory containing exactly the word pong (no newline needed), then reply with the single word: done.';
 const SCHEMA_PROMPT =
@@ -49,6 +52,11 @@ const STEER_RUN_PROMPT =
 const STEER_PROMPT = 'Stop what you are doing. Reply with exactly one line: "STEERED" followed by what you were doing.';
 const FOLLOW_UP_PROMPT = 'Which file did you create in the previous step? Reply with the bare file name only.';
 const DEFAULT_TIMEOUT_S = 300;
+// No tool shows a background turn's activity (list_thronglets says only `running`, the tool-call progress ends at the
+// acceptance), so the steer waits a fixed time. Cursor keeps no session to load until a turn has produced output.
+const DEFAULT_STEER_DELAY_S = 10;
+// Past throng's whole shutdown of an adapter (stdin closed, SIGTERM after the exit grace, SIGKILL after another), plus slack.
+const ORPHAN_WAIT_MS = 2 * DEFAULT_EXIT_GRACE_MS + 2000;
 // submit-tool: the structured-output server the harness spawns; its argv carries the run's temp dir under our TMPDIR.
 // gemini.*--acp: a relaunched Gemini CLI may show its package entry (`…/gemini-cli/…/index.js --acp`), not `gemini --acp`.
 const ADAPTER_PATTERNS = [
@@ -56,6 +64,7 @@ const ADAPTER_PATTERNS = [
     'codex-acp',
     'opencode acp',
     'gemini.*--acp',
+    'cursor-agent',
     `submit-tool\\.ts --schema ${escapeRegex(join(tmpdir(), 'throng-'))}`,
 ];
 const repo = resolve(fileURLToPath(new URL('../..', import.meta.url)));
@@ -80,6 +89,7 @@ try {
             prompt: { type: 'string' },
             cwd: { type: 'string' },
             timeout: { type: 'string' },
+            'steer-delay': { type: 'string' },
             'no-follow-up': { type: 'boolean' },
             schema: { type: 'boolean' },
             background: { type: 'boolean' },
@@ -95,6 +105,8 @@ if (positionals.length !== 1) usage();
 const agent = positionals[0] ?? '';
 const timeoutS = values.timeout === undefined ? DEFAULT_TIMEOUT_S : Number(values.timeout);
 if (!(timeoutS > 0)) usage(`--timeout must be a positive number of seconds, got ${values.timeout}`);
+const steerDelayS = values['steer-delay'] === undefined ? DEFAULT_STEER_DELAY_S : Number(values['steer-delay']);
+if (!(steerDelayS >= 0)) usage(`--steer-delay must be a number of seconds, got ${values['steer-delay']}`);
 let spec;
 try {
     spec = parseAgentSpec(agent);
@@ -132,6 +144,16 @@ function adapterPids(): Set<number> {
         for (const line of out.split('\n')) if (line.trim()) pids.add(Number(line.trim()));
     }
     return pids;
+}
+
+/** The server's own model resolution: a listed value, or a name before its `[` parameters (Cursor). */
+function offers(models: string[], model: string): boolean {
+    try {
+        resolveModel(model, models);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 function textOf(result: Record<string, unknown>): string {
@@ -289,6 +311,9 @@ async function steerSteps(args: Record<string, unknown>): Promise<void> {
         `run_thronglet background answered ${textOf(accepted).slice(0, 200)}, expected state running`
     );
 
+    say(`wait ${steerDelayS} s for the turn to get busy`);
+    await new Promise(r => setTimeout(r, steerDelayS * 1000));
+
     say(`send_message session_id=${id} steer timeout_s=${timeoutS}`);
     const steered = await client.callTool(
         { name: 'send_message', arguments: { session_id: id, prompt: STEER_PROMPT, steer: true, timeout_s: timeoutS } },
@@ -384,7 +409,7 @@ try {
     if (!info) {
         console.log(`harness ${spec.harness} is not available (see its reason above)`);
         exitCode = 2;
-    } else if (!info.models.includes(spec.model)) {
+    } else if (!offers(info.models, spec.model)) {
         console.log(
             `model ${spec.model} is not offered by ${spec.harness}; valid models (${info.models.length} total):`
         );
@@ -498,7 +523,7 @@ say('check adapter processes');
 if (before && !pgrepError) {
     const baseline = before;
     let orphans: number[] = [];
-    const deadline = Date.now() + 3000;
+    const deadline = Date.now() + ORPHAN_WAIT_MS;
     try {
         for (;;) {
             orphans = [...adapterPids()].filter(pid => !baseline.has(pid));
