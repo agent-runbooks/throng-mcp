@@ -5,7 +5,7 @@ status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-03 13:07'
-updated_date: '2026-10-10 21:40'
+updated_date: '2026-10-11 19:02'
 labels: []
 milestone: m-3
 dependencies:
@@ -52,10 +52,12 @@ Auth: Google-account sign-in is refused server-side for personal accounts ('This
 #4 effort: gemini/auto:high hit the quota but already returned warnings ['effort "high" ignored: gemini exposes no effort option']; gemini/gemini-3.5-flash-lite:high: ok, same single warning, PASS pong.txt written, no orphans; the Gemini chat record shows gemini-3.5-flash-lite answered.
 Deviation: #2-#4 ran on gemini-3.5-flash-lite instead of auto because of the per-model daily quota; the harness path (set_model, modes, permissions, submit_result over MCP) is the same.
 #5: no behaviour difference from DESIGN §2.3 found besides auth; DESIGN header now names 0.63.0.
+
+2026-10-11, rebase onto THRONG-30 (#19): the Gemini facts moved from DESIGN §2.3 to docs/harnesses.md#gemini-cli; the version, auth and free-tier edits now live there, DESIGN untouched.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Ran the gemini smoke on Gemini CLI 0.63.0 with a Gemini API key (free tier): auto edits a file, deny_all refuses edits and shell while the run succeeds, submit_result over MCP returns {file: pong.txt, content: pong}, an effort suffix gives exactly the 'gemini exposes no effort option' warning; no orphans in any run. Runs #2-#4 used gemini-3.5-flash-lite after the free daily quota of gemini-3.8-flash (what auto routes to) ran out. Google-account sign-in is refused server-side for personal accounts, so README, docs/configuration.md, docs/development.md and DESIGN §2.3 now say API key or Vertex, name 0.63.0, and describe free-tier quota and latency (--timeout 900 for the smoke). Evidence: smoke logs summarised in the notes; pnpm typecheck, lint, test (367) green. DoD #1 not applicable: no code in this task (maintainer's call, 2026-10-10).
+Ran the gemini smoke on Gemini CLI 0.63.0 with a Gemini API key (free tier): auto edits a file, deny_all refuses edits and shell while the run succeeds, submit_result over MCP returns {file: pong.txt, content: pong}, an effort suffix gives exactly the 'gemini exposes no effort option' warning; no orphans in any run. Runs #2-#4 used gemini-3.5-flash-lite after the free daily quota of gemini-3.8-flash (what auto routes to) ran out. Google-account sign-in is refused server-side for personal accounts, so README, docs/configuration.md, docs/development.md and docs/harnesses.md (the Gemini facts formerly in DESIGN §2.3) now say API key or Vertex, name 0.63.0, and describe free-tier quota and latency (--timeout 900 for the smoke). Evidence: smoke logs summarised in the notes; pnpm typecheck, lint, test green. DoD #1 not applicable: no code in this task (maintainer's call, 2026-10-10).
 <!-- SECTION:FINAL_SUMMARY:END -->

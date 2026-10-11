@@ -5,7 +5,7 @@ status: Blocked
 assignee:
   - '@claude'
 created_date: '2026-10-10 15:39'
-updated_date: '2026-10-10 21:04'
+updated_date: '2026-10-11 19:02'
 labels: []
 milestone: m-3
 dependencies:
@@ -63,4 +63,6 @@ AC #1 finding (2026-10-10, Gemini CLI 0.63.0 = npm latest, source tag v0.63.0, b
 Per AC #2 the approach goes to the maintainer before code.
 
 2026-10-10: upstream issue google-gemini/gemini-cli#29707, PR google-gemini/gemini-cli#29708 (Nodge/gemini-cli branch fix/acp-load-replay-before-response; awaits streamHistory before the session/load response, regression test fails on main with only the first message replayed before the response). Blocked on a Gemini CLI release with the fix, and on THRONG-30 merged to main. decision-10 records the approach.
+
+2026-10-11: THRONG-30 merged (#19) and moved the Gemini facts from DESIGN §2.3 to docs/harnesses.md#gemini-cli; the AC #1 finding is recorded there. Remaining blocker: a Gemini CLI release with google-gemini/gemini-cli#29708.
 <!-- SECTION:NOTES:END -->
