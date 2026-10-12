@@ -1,3 +1,4 @@
+import type { McpServerStdio } from '@agentclientprotocol/sdk';
 import type { Config, HarnessMode } from '../config.ts';
 import type { Effort } from '../contract.ts';
 
@@ -50,4 +51,9 @@ export interface HarnessDefinition {
     continueViaLoad?: boolean;
     /** Agent messages outside a turn that are routine for this harness; dropped instead of reported as warnings. */
     preTurnNoise?: RegExp[];
+    /**
+     * For an agent that refuses stdio MCP servers in its session requests (Copilot): the run's servers go in as these
+     * launch args instead, and `session/new`, `session/resume` and `session/load` carry none.
+     */
+    mcpServerArgs?(servers: McpServerStdio[]): string[];
 }

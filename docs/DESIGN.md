@@ -298,6 +298,7 @@ interface HarnessDefinition {                 // src/harnesses/types.ts
   preTurnNoise?: RegExp[];   // agent messages outside a turn that are routine for the harness: dropped, not warnings (§4.3)
   authMethodId?: string;     // `authenticate` after `initialize` when the agent lists it in `authMethods` (Cursor: cursor_login)
   continueViaLoad?: boolean; // continue sessions through `session/load` when the agent has `loadSession` but no resume (§3.3)
+  mcpServerArgs?(servers: McpServerStdio[]): string[];   // the run's MCP servers as launch args, for an agent that refuses stdio servers in session requests (Copilot); the requests then carry none (§6)
 }
 ```
 
