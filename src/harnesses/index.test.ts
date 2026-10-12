@@ -157,6 +157,15 @@ describe('resolve', () => {
         });
     });
 
+    it('an override without command does not count: adapter missing is still not installed', () => {
+        const config = withHarnesses({ claude: { env: { EXTRA: '1' }, args: ['--flag'], harness_mode: 'ask' } });
+        expect(HARNESSES.claude.resolve(config, { PATH: pathDir(['claude']) })).toStrictEqual({
+            available: false,
+            reason: 'claude-agent-acp not found on PATH; install: npm i -g @agentclientprotocol/claude-agent-acp',
+            notInstalled: true,
+        });
+    });
+
     it('harness binary missing alone does not make the harness unavailable', () => {
         const env = { PATH: pathDir(['claude-agent-acp', 'codex-acp']) };
         expect(launchOf(HARNESSES.claude.resolve(DEFAULT_CONFIG, env)).env).toStrictEqual({});
