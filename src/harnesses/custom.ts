@@ -20,7 +20,7 @@ function setupOf(block: ModeSetup): PermissionSetup {
 export function customHarness(id: string, entry: CustomHarnessEntry): HarnessDefinition {
     return {
         id,
-        resolve(_config, _registry, env) {
+        resolve(_config, env) {
             const found = findCommand(`custom_harnesses.${id}.command`, entry.command, env);
             if (!found.ok) return { available: false, reason: found.reason };
             return {

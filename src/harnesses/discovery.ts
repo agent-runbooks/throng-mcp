@@ -2,16 +2,10 @@ import { accessSync, constants, statSync } from 'node:fs';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
 import type { Config } from '../config.ts';
 import type { HarnessId } from '../contract.ts';
-import snapshot from '../../data/registry.json' with { type: 'json' };
-import type { HarnessResolution, RegistrySnapshot } from './types.ts';
+import type { HarnessResolution } from './types.ts';
 
 // Adapter discovery shared by the harness definitions (DESIGN §4.1, decision-3).
 // Kept apart from index.ts so the definitions can import it without an import cycle.
-
-/** data/registry.json; the bundle inlines it. */
-export function loadRegistry(): RegistrySnapshot {
-    return snapshot;
-}
 
 function isExecutableFile(path: string): boolean {
     try {
@@ -53,24 +47,11 @@ export function findCommand(
     return { ok: false, reason: `${configured} (${key}) ${where}` };
 }
 
-/** Agents that ship as a binary. npm adapters (claude-agent-acp, codex-acp) get `npm i -g <package>` from the registry instead. */
-const BINARY_INSTALL_HINTS: Record<string, string> = {
-    opencode: 'see https://opencode.ai/docs (binary install)',
-    cursor: 'curl https://cursor.com/install -fsS | bash',
-};
-
-/** Install command for the latest adapter: the snapshot's `npx.package` without its pinned version. */
-export function installHint(snapshot: RegistrySnapshot, registryId: string): string {
-    const agent = snapshot.agents.find(a => a.id === registryId);
-    const pkg = agent?.distribution?.npx?.package;
-    if (pkg) return `npm i -g ${pkg.replace(/(?<=.)@[^@/]*$/, '')}`;
-    return (agent && BINARY_INSTALL_HINTS[registryId]) ?? 'no install hint in the registry snapshot';
-}
-
 /** The per-harness data `resolveAdapter` needs; everything else about a harness lives in its definition. */
 export interface AdapterSpec {
     id: HarnessId;
-    registryId: string;
+    /** What to install when the adapter is missing: the text after `install: ` in the reason. */
+    installHint: string;
     /** Adapter command looked up on PATH. */
     adapter: string;
     args: string[];
@@ -85,20 +66,23 @@ export interface AdapterSpec {
 export function resolveAdapter(
     spec: AdapterSpec,
     config: Config,
-    snapshot: RegistrySnapshot,
     env: NodeJS.ProcessEnv = process.env
 ): HarnessResolution {
     const override = config.harnesses[spec.id];
-    const hint = installHint(snapshot, spec.registryId);
 
     let command: string | undefined;
     if (override?.command) {
         const found = findCommand(`harnesses.${spec.id}.command`, override.command, env);
-        if (!found.ok) return { available: false, reason: `${found.reason}; install: ${hint}` };
+        if (!found.ok) return { available: false, reason: `${found.reason}; install: ${spec.installHint}` };
         command = found.command;
     } else {
         command = findOnPath(spec.adapter, env);
-        if (!command) return { available: false, reason: `${spec.adapter} not found on PATH; install: ${hint}` };
+        if (!command)
+            return {
+                available: false,
+                reason: `${spec.adapter} not found on PATH; install: ${spec.installHint}`,
+                notInstalled: true,
+            };
     }
 
     const configEnv = override?.env ?? {};

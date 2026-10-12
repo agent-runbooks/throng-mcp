@@ -5,9 +5,9 @@ import type { Worker } from './acp/types.ts';
 import { startWorker } from './acp/worker.ts';
 import type { Config, LoadedConfig } from './config.ts';
 import { HARNESS_IDS, type HarnessInfo, type ListHarnessesOutput } from './contract.ts';
-import { harnessFor, harnessIds, loadRegistry } from './harnesses/index.ts';
+import { harnessFor, harnessIds } from './harnesses/index.ts';
 import { optionByCategory } from './harnesses/select.ts';
-import type { HarnessDefinition, RegistrySnapshot } from './harnesses/types.ts';
+import type { HarnessDefinition } from './harnesses/types.ts';
 
 // list_harnesses (DESIGN §3.4): every available harness is started over ACP, no prompt, and closed again.
 
@@ -19,17 +19,14 @@ export interface ProbeOptions {
     env?: NodeJS.ProcessEnv;
 }
 
-export type ProbeResult = { ok: true; info: HarnessInfo } | { ok: false; reason: string };
+export type ProbeResult = { ok: true; info: HarnessInfo } | { ok: false; reason: string; notInstalled?: true };
 
 /** Handshake in a throwaway cwd; reads models, efforts and the adapter version. Never throws. */
-export async function probeHarness(
-    def: HarnessDefinition,
-    config: Config,
-    registry: RegistrySnapshot,
-    opts: ProbeOptions
-): Promise<ProbeResult> {
-    const resolution = def.resolve(config, registry, opts.env);
-    if (!resolution.available) return { ok: false, reason: resolution.reason };
+export async function probeHarness(def: HarnessDefinition, config: Config, opts: ProbeOptions): Promise<ProbeResult> {
+    const resolution = def.resolve(config, opts.env);
+    if (!resolution.available) {
+        return { ok: false, reason: resolution.reason, ...(resolution.notInstalled ? { notInstalled: true } : {}) };
+    }
     const { launch } = resolution;
 
     let cwd: string | undefined;
@@ -69,7 +66,7 @@ export async function probeHarness(
 
 /**
  * A config error marks every built-in harness unavailable without probing (custom harnesses are unknown then);
- * otherwise every harness of `harnessIds` is probed in parallel.
+ * otherwise every harness of `harnessIds` is probed in parallel and the not-installed built-ins are dropped.
  */
 export async function listHarnesses(loaded: LoadedConfig, opts: ProbeOptions): Promise<ListHarnessesOutput> {
     const { config } = loaded;
@@ -84,15 +81,14 @@ export async function listHarnesses(loaded: LoadedConfig, opts: ProbeOptions): P
         return { harnesses: [], unavailable: HARNESS_IDS.map(harness => ({ harness, reason })), limits };
     }
 
-    const registry = loadRegistry();
     const defs = harnessIds(config).flatMap(id => harnessFor(id, config) ?? []);
     const results = await Promise.all(
-        defs.map(async def => ({ harness: def.id, result: await probeHarness(def, config, registry, opts) }))
+        defs.map(async def => ({ harness: def.id, result: await probeHarness(def, config, opts) }))
     );
     const out: ListHarnessesOutput = { harnesses: [], unavailable: [], limits };
     for (const { harness, result } of results) {
         if (result.ok) out.harnesses.push(result.info);
-        else out.unavailable.push({ harness, reason: result.reason });
+        else if (!result.notInstalled) out.unavailable.push({ harness, reason: result.reason });
     }
     return out;
 }

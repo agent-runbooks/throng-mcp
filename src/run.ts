@@ -16,7 +16,7 @@ import {
     ThrongError,
     toThrongError,
 } from './contract.ts';
-import { harnessFor, harnessIds, loadRegistry } from './harnesses/index.ts';
+import { harnessFor, harnessIds } from './harnesses/index.ts';
 import { applyConfigOption, selectEffort, selectModel } from './harnesses/select.ts';
 import { RunLifecycle } from './lifecycle.ts';
 import { log } from './log.ts';
@@ -212,7 +212,7 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
             );
         }
         collector.preTurnNoise = def.preTurnNoise ?? [];
-        const resolution = def.resolve(config, loadRegistry(), ctx.env);
+        const resolution = def.resolve(config, ctx.env);
         if (!resolution.available) throw new ThrongError('harness_unavailable', resolution.reason);
         // spawn would fail with ENOENT anyway; checking first gives a message that names the cause.
         if (!isDirectory(target.cwd)) {

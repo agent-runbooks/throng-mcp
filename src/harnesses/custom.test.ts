@@ -15,7 +15,6 @@ import type { RunContext, RunOutcome } from '../run.ts';
 import { readSessionRecord } from '../sessions.ts';
 import { waitThronglet } from '../wait.ts';
 import { customHarness } from './custom.ts';
-import { loadRegistry } from './index.ts';
 import type { HarnessResolution } from './types.ts';
 
 // Custom harnesses (DESIGN §4.1 "Custom harnesses", decision-8): the definition built from a config entry, and runs of
@@ -24,7 +23,6 @@ import type { HarnessResolution } from './types.ts';
 const h = fakeHarness('throng-custom-');
 afterAll(() => h.cleanup());
 
-const registry = loadRegistry();
 const bin = join(h.root, 'bin');
 
 const AUTO_MODE = {
@@ -70,10 +68,9 @@ describe('customHarness: permissionSetup', () => {
         expect(def.permissionSetup('auto').configOptions?.map(o => o.id)).toStrictEqual(['zeta', 'alpha', 'mid']);
     });
 
-    it('no registryId, preTurnNoise or newSessionMeta', () => {
+    it('no preTurnNoise or newSessionMeta', () => {
         const def = kimi({ auto_mode: AUTO_MODE });
         expect(def.id).toBe('kimi');
-        expect(def.registryId).toBe(undefined);
         expect(def.preTurnNoise).toBe(undefined);
         expect('newSessionMeta' in def.permissionSetup('auto')).toBe(false);
     });
@@ -100,7 +97,7 @@ describe('customHarness: resolve', () => {
         return dir;
     }
     const resolve = (entry: CustomHarnessEntry, env: NodeJS.ProcessEnv): HarnessResolution =>
-        customHarness('kimi', entry).resolve(DEFAULT_CONFIG, registry, env);
+        customHarness('kimi', entry).resolve(DEFAULT_CONFIG, env);
 
     it('a name found on PATH: its absolute path, the entry args and env, nothing else', () => {
         const dir = dirWith([{ name: 'kimi', mode: 0o755 }]);
@@ -425,7 +422,7 @@ describe('list_harnesses with custom harnesses', () => {
             efforts: ['low', 'high'],
             version: '0.0.1',
         });
-        expect(out.unavailable.map(u => u.harness)).toStrictEqual(['claude', 'codex', 'opencode', 'gemini', 'cursor']);
+        expect(out.unavailable, 'built-in harnesses without adapters are not listed').toStrictEqual([]);
         expect(tagAlive(tag), 'probed fake agent still running').toBe(false);
     });
 
@@ -437,7 +434,7 @@ describe('list_harnesses with custom harnesses', () => {
         ]);
         const out = await listHarnesses(loaded, { handshakeMs: 5000, depth: 0, env: { PATH: bin } });
         expect(out.harnesses).toStrictEqual([]);
-        expect(out.unavailable.slice(5)).toStrictEqual([
+        expect(out.unavailable).toStrictEqual([
             { harness: 'kimi', reason: 'kimi-acp (custom_harnesses.kimi.command) not found on PATH' },
             {
                 harness: 'zed-agent',
@@ -528,7 +525,7 @@ describe('a custom harness with a built-in id', () => {
             command: [process.execPath, expect.stringMatching(/agent\.ts$/), `--tag=${tag}`],
             models: ['fake-small', 'fake-large'],
         });
-        expect(out.unavailable.map(u => u.harness)).toStrictEqual(['codex', 'opencode', 'gemini', 'cursor']);
+        expect(out.unavailable).toStrictEqual([]);
     });
 });
 

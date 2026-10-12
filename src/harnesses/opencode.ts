@@ -4,15 +4,14 @@ import type { HarnessDefinition } from './types.ts';
 
 const spec: AdapterSpec = {
     id: 'opencode',
-    registryId: 'opencode',
+    installHint: 'see https://opencode.ai/docs (binary install)',
     adapter: 'opencode',
     args: ['acp'],
 };
 
 export const opencode: HarnessDefinition = {
     id: spec.id,
-    registryId: spec.registryId,
-    resolve: (config, registry, env) => resolveAdapter(spec, config, registry, env),
+    resolve: (config, env) => resolveAdapter(spec, config, env),
     mapEffort: (level, options) => (options.includes(level) ? level : undefined),
     // `auto` keeps the user's opencode.json; `ask` routes every tool through request_permission.
     permissionSetup: mode => (mode === 'auto' ? {} : { env: { OPENCODE_CONFIG_CONTENT: '{"permission":"ask"}' } }),

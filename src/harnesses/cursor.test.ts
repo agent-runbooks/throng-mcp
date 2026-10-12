@@ -225,15 +225,17 @@ describe('cursor harness (fake agent)', () => {
             efforts: [],
             version: '0.0.1',
         });
-        expect(out.unavailable.map(u => u.harness)).toStrictEqual(['claude', 'codex', 'opencode', 'gemini']);
+        expect(out.unavailable, 'built-in harnesses without adapters are not listed').toStrictEqual([]);
         expect(summary(readFakeCalls(callLog))).toStrictEqual(['start', 'authenticate cursor_login']);
         expect(tagAlive(tag), 'probed fake agent still running').toBe(false);
     });
 
-    it('list_harnesses: cursor-agent not on PATH → unavailable with the install hint', async () => {
+    it('cursor-agent not on PATH: list_harnesses leaves cursor out, run_thronglet names the install command', async () => {
         const { loaded } = h.fakeClaude('echo');
         const out = await listHarnesses(loaded, { handshakeMs: 5000, depth: 0, env: { PATH: join(h.root, 'bin') } });
-        expect(out.unavailable.find(u => u.harness === 'cursor')?.reason).toBe(
+        expect([...out.harnesses, ...out.unavailable].map(row => row.harness)).not.toContain('cursor');
+        const payload = failed(await runThronglet(input('cursor/x'), h.makeCtx(loaded)), 'harness_unavailable');
+        expect(payload.message).toBe(
             'cursor-agent not found on PATH; install: curl https://cursor.com/install -fsS | bash'
         );
     });

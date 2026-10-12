@@ -6,7 +6,7 @@
     "linked": [],
     "access": "public",
     "baseBranch": "main",
-    "changedFilePatterns": ["src/**", "!src/**/*.test.ts", "data/**", "package.json"],
+    "changedFilePatterns": ["src/**", "!src/**/*.test.ts", "package.json"],
     "updateInternalDependencies": "patch",
     "ignore": []
 }

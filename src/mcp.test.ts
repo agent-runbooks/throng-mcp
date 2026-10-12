@@ -69,18 +69,6 @@ function tagAlive(tag: string): boolean {
     }
 }
 
-function assertInstallHints(unavailable: ListHarnessesOutput['unavailable'], harnesses: string[]): void {
-    expect(unavailable.map(u => u.harness)).toStrictEqual(harnesses);
-    const hints: Record<string, string> = {
-        claude: 'claude-agent-acp not found on PATH; install: npm i -g @agentclientprotocol/claude-agent-acp',
-        codex: 'codex-acp not found on PATH; install: npm i -g @agentclientprotocol/codex-acp',
-        opencode: 'opencode not found on PATH; install: see https://opencode.ai/docs (binary install)',
-        gemini: 'gemini not found on PATH; install: npm i -g @google/gemini-cli',
-        cursor: 'cursor-agent not found on PATH; install: curl https://cursor.com/install -fsS | bash',
-    };
-    for (const { harness, reason } of unavailable) expect(reason).toBe(hints[harness]);
-}
-
 async function waitFor(check: () => boolean, ms: number, what: string): Promise<void> {
     const deadline = Date.now() + ms;
     while (!check()) {
@@ -127,7 +115,7 @@ async function callListHarnesses(env: Record<string, string>): Promise<{ tools: 
 }
 
 describe('mcp server over stdio', () => {
-    it('without adapters on PATH: every harness unavailable with its install hint, default limits', async () => {
+    it('without adapters on PATH: no harness listed, default limits', async () => {
         const { tools, out } = await callListHarnesses(serverEnv({}));
         expect(tools).toStrictEqual([
             'cancel_thronglet',
@@ -138,7 +126,7 @@ describe('mcp server over stdio', () => {
             'wait_thronglet',
         ]);
         expect(out.harnesses).toStrictEqual([]);
-        assertInstallHints(out.unavailable, ['claude', 'codex', 'opencode', 'gemini', 'cursor']);
+        expect(out.unavailable).toStrictEqual([]);
         expect(out.limits).toStrictEqual({
             max_concurrency: 10,
             max_depth: 2,
@@ -163,7 +151,7 @@ describe('mcp server over stdio', () => {
                 version: '0.0.1',
             },
         ]);
-        assertInstallHints(out.unavailable, ['codex', 'opencode', 'gemini', 'cursor']);
+        expect(out.unavailable).toStrictEqual([]);
         expect(tagAlive(tag), 'probed fake agent still running').toBe(false);
     });
 
@@ -183,10 +171,8 @@ describe('mcp server over stdio', () => {
         );
         const { out } = await callListHarnesses(serverEnv({ THRONG_MCP_CONFIG: config }));
         expect(out.harnesses).toStrictEqual([]);
-        expect(out.unavailable.map(u => u.harness)).toStrictEqual(['claude', 'codex', 'opencode', 'gemini', 'cursor']);
-        const claude = out.unavailable[0]?.reason ?? '';
-        expect(claude).toMatch(/did not answer initialize within 1000 ms/);
-        assertInstallHints(out.unavailable.slice(1), ['codex', 'opencode', 'gemini', 'cursor']);
+        expect(out.unavailable.map(u => u.harness)).toStrictEqual(['claude']);
+        expect(out.unavailable[0]?.reason).toMatch(/did not answer initialize within 1000 ms/);
         expect(tagAlive(tag), 'timed-out fake agent still running').toBe(false);
     });
 

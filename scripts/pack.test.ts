@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, expect, it } from 'vitest';
-import type { ListHarnessesOutput, RunSuccess } from '../src/contract.ts';
+import type { ListHarnessesOutput, RunFailure, RunSuccess } from '../src/contract.ts';
 import { connectServer, fakeClaudeConfig, payloadOf, serverEnv } from '../test/mcp-server.ts';
 
 // The npm tarball as a user gets it: `pnpm pack` (prepack builds dist/), unpacked, run as `node dist/mcp.js`
@@ -89,8 +89,14 @@ it(
                 await client.callTool({ name: 'list_harnesses', arguments: {} })
             ) as ListHarnessesOutput;
             expect(harnesses.harnesses.map(h => h.harness)).toStrictEqual(['claude']);
-            // Install hints come from data/registry.json, inlined into the bundle.
-            expect(harnesses.unavailable.find(u => u.harness === 'codex')?.reason).toMatch(
+            // codex-acp is not on PATH: not listed at all, and a run says what to install.
+            expect(harnesses.unavailable).toStrictEqual([]);
+            const codex = await client.callTool({
+                name: 'run_thronglet',
+                arguments: { agent: 'codex/x', prompt: 'hi', cwd: work, description: 'pack test' },
+            });
+            expect(codex.isError).toBe(true);
+            expect((payloadOf(codex) as RunFailure).message).toMatch(
                 /install: npm i -g @agentclientprotocol\/codex-acp$/
             );
 

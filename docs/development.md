@@ -19,14 +19,14 @@ claude mcp add --scope user throng -- node /abs/path/to/throng-mcp/src/mcp.ts
 
 - `pnpm build` (tsdown, config in `tsdown.config.ts`) writes `dist/mcp.js`, the bin, and `dist/structured/submit-tool.js`, spawned for `schema` runs; shared code may land in a chunk under `dist/`. The runtime libraries are `devDependencies`, bundled into `dist/`: the package has no dependencies of its own. The build also writes `dist/THIRD_PARTY_LICENSES.md`, the licenses of the bundled packages, collected from the modules that ended up in the bundle (`scripts/build/third-party-licenses.ts`); a bundled package with neither a license file nor a `license` field fails the build. `ci:build` is the same for CI; `prepack` runs it, so `pnpm pack` and `pnpm publish` always ship a fresh build. `dist/` is ignored by git, prettier and eslint.
 - Why a build: Node refuses to strip types under `node_modules`, so the package can't ship `src/`. Development, tests and smoke keep running the sources (`node src/mcp.ts`, Node >= 22.18 or 24); the published package needs Node `^22.13 || >=24`.
-- The version from `package.json` and `data/registry.json` are JSON imports, inlined at build time: a registry update needs a rebuild, and `data/` is not in the package.
+- The version from `package.json` is a JSON import, inlined at build time.
 - `src/mcp.ts` resolves the submit tool's path from its own location (`.ts` next to the sources, `.js` in `dist/`) and passes it down as `RunContext.submitTool`.
 - The tarball holds `dist/`, `skills/`, `docs/`, `README.md`, `LICENSE` and `package.json`. `pnpm pack --dry-run` lists it; `scripts/pack.test.ts` (in `pnpm test`) packs it into a temp dir, checks that list, that the packed `package.json` has no `dependencies` or `peerDependencies`, that `dist/THIRD_PARTY_LICENSES.md` names `@modelcontextprotocol/sdk` and `zod` and that `dist/` stays under 2 MB, and runs `node dist/mcp.js` from the unpacked package, with no `node_modules` anywhere, against the fake agent: `list_harnesses` and a `run_thronglet` with a `schema`.
 
 ## Release
 
-- A task commit touching `src/` (tests aside), `data/` or the published fields of `package.json` carries a changeset, `pnpm changeset`; the rule and the bump levels are in [AGENTS.md](../AGENTS.md#task-cycle). Config: `.changeset/config.json`.
-- `ci:changesets` (`changeset status --since=origin/main`) runs in CI on every push and PR. It fails any change to `src/` (tests aside), `data/` or `package.json` that has no changeset. It matches `package.json` as a whole file, so a PR that only touches `devDependencies` or `scripts` needs `pnpm changeset --empty`. On main it compares main with itself and always passes.
+- A task commit touching `src/` (tests aside) or the published fields of `package.json` carries a changeset, `pnpm changeset`; the rule and the bump levels are in [AGENTS.md](../AGENTS.md#task-cycle). Config: `.changeset/config.json`.
+- `ci:changesets` (`changeset status --since=origin/main`) runs in CI on every push and PR. It fails any change to `src/` (tests aside) or `package.json` that has no changeset. It matches `package.json` as a whole file, so a PR that only touches `devDependencies` or `scripts` needs `pnpm changeset --empty`. On main it compares main with itself and always passes.
 - Dependency bumps come from dependabot (`.github/dependabot.yml`): weekly, one grouped PR, a 7-day cooldown, the same as `minimumReleaseAge` in `pnpm-workspace.yaml` for local installs. The Changesets CI check is skipped for dependabot's own pushes. A bump of a bundled library (the five runtime libraries in [DESIGN §9](DESIGN.md#9-package-language-tests)) ships to users, so before merging add a patch changeset to the PR (`pnpm changeset` on the branch, text "Update <lib> to <version>"); that commit runs the check again. A bump of dev tooling alone needs none and is merged as is.
 - On push to main the Release workflow (`.github/workflows/release.yml`, `changesets/action`) opens or updates the "Upcoming Release" PR: `changeset version` bumps `package.json` and writes `CHANGELOG.md`.
 - Merging that PR runs `pnpm run ci:publish` (`ci:build` + `changeset publish`) with npm trusted publishing (OIDC, no token in the repo), and creates the GitHub release and the tag `throng-mcp@x.y.z`.
@@ -38,7 +38,6 @@ claude mcp add --scope user throng -- node /abs/path/to/throng-mcp/src/mcp.ts
 - Records are rotated at server start: files older than 14 days are deleted.
 - Server logs are short lines on stderr (start/stop, permission decisions, each run's outcome, errors); the MCP client decides where they end up.
 - throng keeps no transcripts: the harness logs every session itself, find it by `session_id`.
-- `data/registry.json` in the repo is a verbatim snapshot of the ACP registry, https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json, taken 2026-09-27, inlined into the bundle at build time. It supplies the adapters' launch `args`/`env` and the install hints ([DESIGN §2.3](DESIGN.md#23-adapters), [§4.1](DESIGN.md#41-harnesses-and-discovery)).
 
 ## Smoke
 
