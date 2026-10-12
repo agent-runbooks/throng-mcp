@@ -1,11 +1,11 @@
 ---
 id: THRONG-23
 title: GitHub Copilot CLI as a native harness
-status: In Progress
+status: Review
 assignee:
   - '@nodge'
 created_date: '2026-10-02 21:23'
-updated_date: '2026-10-12 21:58'
+updated_date: '2026-10-12 22:21'
 labels: []
 milestone: m-3
 dependencies:
@@ -29,18 +29,18 @@ Blocked by an upstream regression: since Copilot CLI 1.0.81 the ACP server never
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 Agent strings copilot/<model>[:<effort>] run through Copilot CLI over ACP; list_harnesses shows copilot with models and efforts from the probe
-- [ ] #2 Harness mode auto turns on allow_all (session/set_config_option allow_all=on); harness mode ask leaves it off and launches with COPILOT_ALLOW_ALL=false, and permission_answers apply to Copilot's request_permission
-- [ ] #3 copilot not on PATH → not listed by list_harnesses; run_thronglet on copilot fails with harness_unavailable and the install hint `npm i -g @github/copilot`
+- [x] #2 Harness mode auto turns on allow_all (session/set_config_option allow_all=on); harness mode ask leaves it off and launches with COPILOT_ALLOW_ALL=false, and permission_answers apply to Copilot's request_permission
+- [x] #3 copilot not on PATH → not listed by list_harnesses; run_thronglet on copilot fails with harness_unavailable and the install hint `npm i -g @github/copilot`
 - [ ] #4 Unit tests via test/fake-agent for the wiring; scripts/smoke has a copilot case; maintainer smoke on the real CLI with harness_mode auto, with ask + deny, and with a schema
-- [ ] #5 DESIGN §4.1 table and README updated
+- [x] #5 DESIGN §4.1 table and README updated
 - [ ] #6 run_thronglet with a schema on copilot returns structured: submit_result reaches Copilot through --additional-mcp-config, and under ask throng still answers its own submit_result allow_once although Copilot's permission request titles it only submit_result
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Went through the runbook-task-cycle; report spot-checked
-- [ ] #2 Gates green: pnpm typecheck && pnpm test
-- [ ] #3 DESIGN.md updated if an external contract (DESIGN §3) changed
+- [x] #1 Went through the runbook-task-cycle; report spot-checked
+- [x] #2 Gates green: pnpm typecheck && pnpm test
+- [x] #3 DESIGN.md updated if an external contract (DESIGN §3) changed
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -127,4 +127,16 @@ Supersedes the earlier 'Blocked on github/copilot-cli issue #4537' note: the tas
 2026-10-12, decision by the maintainer (nodge), superseding the reduced-scope decision above: full support. harness_mode ask works on copilot like on the other harnesses: no refusal before spawn, no version gate, no docs mention of 1.0.81-1.0.82.
 
 2026-10-12, scope addition approved by the maintainer (nodge): structured output on copilot. Copilot rejects every stdio MCP server an ACP client passes in session/new (log 'Rejecting non-http/sse MCP server', 1.0.80-1.0.96, also under --yolo), so throng's submit_result goes in through the launch flag --additional-mcp-config instead (checked: the tool runs, the result file is written). Under ask, Copilot's request_permission titles it 'submit_result' while the tool_call update for the same toolCallId says 'throng_result-submit_result', so throng recognises its own tool by that earlier title too.
+
+Runbook run 20261012-throng-23 ended ready. Reviews: Opus 2 findings, Codex 1 (duplicate of Opus a1). Fixed: a1, recognition of throng's submit_result is sticky per toolCallId, so a later tool_call_update retitled to the bare 'submit_result' no longer loses it (fake-agent FAKE_TOOL_RETITLE + test); a2, the Copilot smoke step for schema under ask+deny uses --no-follow-up and a prompt that needs no file edit, so its only expected FAIL is pong.txt. Nothing rejected as not worth it. Spot-checked in src/run.ts (toolTitles), src/permissions.ts (isThrongResultCall with knownTitle), src/harnesses/copilot.ts, docs.
+
+Real-CLI evidence from the main session (Copilot 1.0.96, gh-only login): probeHarness on the copilot definition → ok, version 1.0.96, models [], efforts []; with copilot off PATH → notInstalled, 'copilot not found on PATH; install: npm i -g @github/copilot'. A full run through throng was not possible here: with a gh-only login Copilot exposes no model option, so every run is model_rejected (documented). Pending for the maintainer's smoke (docs/development.md, Copilot block) after 'copilot login': models in list_harnesses, auto, ask + deny, schema under ask + deny.
+
+Gates: pnpm typecheck, lint, test green (30 files, 417 tests). Changeset: .changeset/copilot-harness.md (minor). Branch is stacked on throng-28 (PR #21, still open): rebase onto main once it merges.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Copilot CLI is a built-in harness: copilot/<model> launches 'copilot --acp'. harness_mode auto sets allow_all=on; ask leaves it off and launches with COPILOT_ALLOW_ALL=false. send_message continues through session/load. Effort maps to thought_level when offered. A spike on the real CLI found that the request_permission regression (github/copilot-cli#4537) is fixed since 1.0.83, so ask has full support (maintainer's call). It also found that Copilot rejects stdio MCP servers in session/new, so HarnessDefinition gained mcpServerArgs and throng's submit_result goes in through --additional-mcp-config. throng now also recognises its own submit_result by the earlier tool_call title of the same toolCallId. Verified with fake-agent unit tests (417 green) and a real probe of Copilot 1.0.96. Waiting on the maintainer's smoke with a copilot login (models, auto, ask+deny, schema).
+<!-- SECTION:FINAL_SUMMARY:END -->

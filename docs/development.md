@@ -54,6 +54,8 @@ pnpm smoke:gemini          # gemini/auto (follow-up skipped: gemini has no sessi
 pnpm smoke:gemini-schema   # gemini/auto with --schema
 pnpm smoke:cursor          # cursor/default (Auto, works on a free plan; the follow-up goes through session/load)
 pnpm smoke:cursor-schema   # cursor/default with --schema
+pnpm smoke:copilot         # copilot/auto (the follow-up goes through session/load)
+pnpm smoke:copilot-schema  # copilot/auto with --schema
 pnpm smoke opencode/<provider>/<model>                  # custom provider
 pnpm smoke:claude -- --prompt "…" --cwd /some/dir --timeout 600
 pnpm smoke:claude -- --no-follow-up                    # skip the send_message step
@@ -71,7 +73,7 @@ The script starts the server, prints the `list_harnesses` table (versions, model
 - `PASS: run_thronglet background accepted` / `PASS: send_message background accepted`: with `--background` only; the call answered `{session_id, state, queued}` (printed as `pending:`), and `wait_thronglet` then delivers the payload the checks above run on.
 - With `--cancel` instead of the pong.txt and follow-up checks: `PASS: run_thronglet background accepted`, `PASS: list_thronglets shows the turn running` (the row has description `smoke: ping/pong`), `PASS: cancel_thronglet cancelled the turn` (`cancelled_turn: true`), `PASS: wait_thronglet returned cancelled`, `PASS: list_thronglets shows the turn failed with cancelled`.
 - With `--steer` instead of the pong.txt and follow-up checks: `PASS: run_thronglet background accepted` (the prompt asks for `sleep 60` as one tool call, so there is a turn to interrupt), then a 10 s wait (`--steer-delay <s>` changes it) so the steer lands while the turn is busy (no tool shows a background turn's activity, and Cursor has no session to load until the turn has produced output), `PASS: send_message steer answered STEERED` (a synchronous `send_message` with `steer: true` asks for a line starting with STEERED and what the agent was doing; the payload is printed), `PASS: list_thronglets shows the session idle`.
-- `PASS: no orphans` / `FAIL: orphaned adapter processes: <pids>`: no new `claude-agent-acp`, `codex-acp`, `opencode acp`, `gemini.*--acp` (regex), `cursor-agent` or `submit-tool` process is alive 12 s after the client closed (throng's shutdown of an adapter: 5 s before SIGTERM, 5 s more before SIGKILL, plus 2 s). `FAIL: cannot check orphans (…)` when `pgrep` is missing or fails.
+- `PASS: no orphans` / `FAIL: orphaned adapter processes: <pids>`: no new `claude-agent-acp`, `codex-acp`, `opencode acp`, `gemini.*--acp` (regex), `cursor-agent`, `copilot.*--acp` (regex) or `submit-tool` process is alive 12 s after the client closed (throng's shutdown of an adapter: 5 s before SIGTERM, 5 s more before SIGKILL, plus 2 s). `FAIL: cannot check orphans (…)` when `pgrep` is missing or fails.
 
 Exit code: 0 all passed; 1 a FAIL or a tool error; 2 bad usage, harness unavailable or unknown model (the valid models are printed). Server stderr is prefixed `[server]`, progress `[progress]`. The temp dir is removed on success and kept (path printed) on failure.
 
@@ -124,9 +126,31 @@ pnpm smoke cursor/default:high
 pnpm smoke cursor/gpt-5.4-nano --no-follow-up
 ```
 
+The Copilot CLI runs (after `npm i -g @github/copilot` and `copilot login`), with the config files above. `copilot/auto` assumes the model option lists `auto`; if it does not, pick a model from `list_harnesses` and run `pnpm smoke copilot/<model>` instead:
+
+```bash
+# 1. auto (allow_all=on): PASS: pong.txt written, PASS: send_message answered pong.txt (session/load)
+THRONG_MCP_CONFIG=/tmp/throng-auto.yaml pnpm smoke:copilot
+
+# 2. ask + deny, a shell command: Copilot asks, throng answers reject_once; the run succeeds,
+#    FAIL: pong.txt not found, exit 1 — the expected outcome; the server log has `permission … choice=reject_once`
+THRONG_MCP_CONFIG=/tmp/throng-deny.yaml pnpm smoke:copilot -- --no-follow-up \
+  --prompt "Run exactly this shell command and nothing else: echo pong > pong.txt. Do not edit files any other way. Then reply done."
+
+# 3. structured output under ask + deny: Copilot asks for submit_result under its bare name, throng still answers
+#    allow_once: PASS: structured is {file: pong.txt, content: pong}, the server log has
+#    `permission title=submit_result … choice=allow_once`; the prompt writes no file, so FAIL: pong.txt not found and
+#    exit 1 are expected and do not count against the step
+THRONG_MCP_CONFIG=/tmp/throng-deny.yaml pnpm smoke:copilot-schema -- --no-follow-up \
+  --prompt "Do not create or edit any file and do not run any command. Submit the result with file pong.txt and content pong."
+
+# 4. list_harnesses (printed by any run above) shows copilot with its models; record whether `copilot login` exposes a
+#    model option (with a login from the GitHub CLI only there is none, and every run fails model_rejected)
+```
+
 Manual items that need an interactive Claude Code session:
 
-1. Esc during a running `run_thronglet`; afterwards `pgrep -f "claude-agent-acp|codex-acp|opencode acp|gemini.*--acp|cursor-agent"` prints nothing.
+1. Esc during a running `run_thronglet`; afterwards `pgrep -f "claude-agent-acp|codex-acp|opencode acp|gemini.*--acp|cursor-agent|copilot.*--acp"` prints nothing.
 2. A call over 2 min goes to the background: e.g. prompt `run sleep 150 in the shell, then reply done`; the result arrives as a notification.
 3. OpenCode with a custom provider from `opencode.json`.
 

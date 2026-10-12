@@ -6,7 +6,7 @@ export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type Effort = (typeof EFFORT_LEVELS)[number];
 
 /** Built-in harnesses (DESIGN §4.1). A custom harness from the config (§8) may have any id, one of these included. */
-export const HARNESS_IDS = ['claude', 'codex', 'opencode', 'gemini', 'cursor'] as const;
+export const HARNESS_IDS = ['claude', 'codex', 'opencode', 'gemini', 'cursor', 'copilot'] as const;
 export type HarnessId = (typeof HARNESS_IDS)[number];
 
 export function isBuiltinHarness(id: string): id is HarnessId {

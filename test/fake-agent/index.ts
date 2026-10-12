@@ -37,7 +37,12 @@ export type FakeScenario =
     | 'cursor-permission'
     | 'cursor-resume-memory'
     | 'cursor-steer'
-    | 'cursor-write-pong';
+    | 'cursor-write-pong'
+    | 'copilot'
+    | 'copilot-permission'
+    | 'copilot-resume-memory'
+    | 'copilot-submit-valid'
+    | 'copilot-submit-ask';
 
 // Knobs besides FAKE_SCENARIO (env of the agent process): FAKE_TURN_MS — an echo or no-resume turn takes that long
 // before answering (default 0); FAKE_MEMORY_DIR — where resume-memory and steer keep their notes; FAKE_SUBMIT — the valid submit_result (JSON);
@@ -63,16 +68,30 @@ export type FakeScenario =
 // (FAKE_CONFIG_OPTIONS ignored). session/load replays the session's notes (resume-memory, steer) as user_message_chunk,
 // agent_thought_chunk and agent_message_chunk `REPLAYED reply to: <note>`, then available_commands_update, and only
 // then answers; resume-memory and steer reject an id without notes.
+// copilot, copilot-<scenario>: shaped like Copilot CLI 1.0.96 in ACP mode (docs/harnesses.md), with the turn of echo or
+// <scenario>. `loadSession` (session/load as for cursor-*) and no resume capability; modes and a `mode` option with URL
+// ids (`…#agent` current, `…#plan`, `…#autopilot`); an `allow_all` select option (category `permissions`, on | off,
+// default off) after the usual model and effort options. Stdio servers in session/new and session/load are dropped, as
+// Copilot refuses them; the session's servers come from the launch arg `--additional-mcp-config <json>` instead
+// (`{mcpServers: {<name>: {type: 'local', command, args, env: {NAME: value}}}}`). A permission request is skipped (the
+// tool runs) when allow_all is on or COPILOT_ALLOW_ALL=true. copilot-permission asks before a shell command, option ids
+// equal to their kinds; copilot-submit-ask sends a `tool_call` titled FAKE_TOOL_TITLE (default
+// `throng_result-submit_result`) and, when FAKE_TOOL_RETITLE is set, a `tool_call_update` retitling it to that value,
+// then asks for the same toolCallId titled `submit_result`, and submits only when allowed, else replies `denied`.
 
-/** One line of FAKE_CALL_LOG. `resumed`: the session came from session/resume or session/load. */
+/**
+ * One line of FAKE_CALL_LOG. `resumed`: the session came from session/resume or session/load. copilot-*: `allowAll` is
+ * the COPILOT_ALLOW_ALL the process sees when set; `new` and `load` name the MCP servers the session request carried.
+ */
 export type FakeCall =
-    | { event: 'start'; argv: string[]; trustWorkspace?: string; probes?: Record<string, string> }
+    | { event: 'start'; argv: string[]; trustWorkspace?: string; allowAll?: string; probes?: Record<string, string> }
+    | { event: 'new'; mcpServers: string[] }
     | { event: 'set_mode'; modeId: string; resumed: boolean }
     | { event: 'set_config_option'; configId: string; value: string | boolean; resumed: boolean }
     | { event: 'set_model'; modelId: string; resumed: boolean }
     | { event: 'prompt'; resumed: boolean }
     | { event: 'authenticate'; methodId: string }
-    | { event: 'load'; sessionId: string };
+    | { event: 'load'; sessionId: string; mcpServers?: string[] };
 
 /** The FAKE_CALL_LOG lines so far, across every process that wrote to it; [] when the file is absent. */
 export function readFakeCalls(path: string): FakeCall[] {

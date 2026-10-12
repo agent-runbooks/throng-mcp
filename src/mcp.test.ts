@@ -190,7 +190,7 @@ describe('mcp server over stdio', () => {
     it('reports a broken config in every unavailable reason', async () => {
         const config = writeConfig('broken.yaml', 'limits: [\n');
         const { out } = await callListHarnesses(serverEnv({ THRONG_MCP_CONFIG: config }));
-        expect(out.unavailable.length).toBe(5);
+        expect(out.unavailable.length).toBe(6);
         for (const { reason } of out.unavailable) {
             expect(reason.startsWith('config error: '), reason).toBe(true);
             expect(reason.includes(config), reason).toBe(true);

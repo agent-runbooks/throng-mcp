@@ -4,7 +4,7 @@ Date: 2026-09-27. Status: agreed; stages in §10, tasks in `backlog/`.
 
 ## 1. Purpose
 
-MCP server `throng`. Tools: `run_thronglet` (launch a harness with a model, get the result, or run it in the background), `send_message` (next turn into an earlier session, queued or steering), `wait_thronglet`, `list_thronglets`, `cancel_thronglet` (background sessions), `list_harnesses` (discovery). Harnesses in v1: Claude Code, Codex, OpenCode. Transport to harnesses is ACP (Agent Client Protocol) v1. The harness edits the live tree at `cwd`; no sandboxes.
+MCP server `throng`. Tools: `run_thronglet` (launch a harness with a model, get the result, or run it in the background), `send_message` (next turn into an earlier session, queued or steering), `wait_thronglet`, `list_thronglets`, `cancel_thronglet` (background sessions), `list_harnesses` (discovery). Harnesses in v1: Claude Code, Codex, OpenCode; Gemini CLI, Cursor CLI and GitHub Copilot CLI came later. Transport to harnesses is ACP (Agent Client Protocol) v1. The harness edits the live tree at `cwd`; no sandboxes.
 
 Out of scope: runner/DSL, message bus, UI, OTel, worktree/apply-back, trust gates.
 
@@ -46,7 +46,7 @@ Consequence: wrapper subagents that shell out to a nested harness CLI aren't nee
 
 One string names harness, model and effort: `<harness>/<model>[:<effort>]`.
 
-- `claude/opus`, `claude/opus:max`, `codex/gpt-6-sol:xhigh`, `opencode/openrouter/moonshotai/kimi-k3:high`, `gemini/gemini-2.5-pro`, `cursor/gpt-5.4-nano`.
+- `claude/opus`, `claude/opus:max`, `codex/gpt-6-sol:xhigh`, `opencode/openrouter/moonshotai/kimi-k3:high`, `gemini/gemini-2.5-pro`, `cursor/gpt-5.4-nano`, `copilot/auto`.
 - First path segment is the harness: a built-in one (§4.1) or a custom harness defined in the config (§8); the rest up to the last `:` is the model as the harness understands it (for opencode that's already `provider/model`).
 - The `:<effort>` suffix is recognized only when it's one of `low | medium | high | xhigh | max`, so model names with their own `:tag` survive.
 
@@ -128,7 +128,7 @@ Harness, model, effort and `cwd` come from the session record (§8); the caller 
 Every turn runs in a fresh adapter process that picks the session up; the nested session keeps its own context:
 
 - `session/resume` when the agent advertises it (no history replay).
-- `session/load` when the harness definition opts into it (`continueViaLoad`, §4.1; Cursor) and the agent advertises `loadSession` but not resume. Load replays the history before it answers; throng drops those updates, so they reach neither `text` nor `warnings`.
+- `session/load` when the harness definition opts into it (`continueViaLoad`, §4.1; Cursor, Copilot) and the agent advertises `loadSession` but not resume. Load replays the history before it answers; throng drops those updates, so they reach neither `text` nor `warnings`.
 - Either way the process is new, so the permission mode, model and effort are applied again, exactly as after `session/new`.
 
 When the session can't be continued:
@@ -147,7 +147,7 @@ When the session can't be continued:
 input: {}
 output: {
   harnesses: Array<{
-    harness: string;         // 'claude' | 'codex' | 'opencode' | 'gemini' | 'cursor', or a custom harness id from the config (§4.1)
+    harness: string;         // 'claude' | 'codex' | 'opencode' | 'gemini' | 'cursor' | 'copilot', or a custom harness id from the config (§4.1)
     command: string[];       // what will actually be launched
     version?: string;        // adapter's initialize.agentInfo.version: adapters are user-installed, versions drift
     models: string[];
@@ -240,7 +240,7 @@ src/
   agent-spec.ts             — parse '<harness>/<model>[:<effort>]'
   harnesses/
     types.ts                — HarnessDefinition
-    claude.ts codex.ts opencode.ts gemini.ts cursor.ts
+    claude.ts codex.ts opencode.ts gemini.ts cursor.ts copilot.ts
     index.ts discovery.ts   — harness lookup, PATH resolution, install hints
     select.ts               — model/effort selection by option category
   acp/
@@ -303,6 +303,8 @@ interface HarnessDefinition {                 // src/harnesses/types.ts
 ```
 
 `permissionSetup` covers the ways agents switch approval: a session mode, env of the adapter process, `session/new._meta`, a config option (`allow_all=on`, `brave_mode=true`) and a launch flag. The mode is strict: failing to set it fails the run. `configOptions` are best effort: an option the agent does not advertise, or one it rejects, becomes a warning and the turn runs in whatever asking mode the agent is in, where the server's answers (§5) still apply. `args` and `env` apply to the processes of a run; the `list_harnesses` probe has no harness mode and launches without them.
+
+`mcpServerArgs` is for an agent that refuses stdio MCP servers in its session requests. Copilot CLI accepts only http and sse there, but takes stdio servers from its launch flag `--additional-mcp-config` ([harnesses.md](harnesses.md#github-copilot-cli)). When a run has MCP servers (today only `throng_result`, §6), they go into the launch args after the permission setup's `args`, and `session/new`, `session/resume` and `session/load` carry none. The probe has no servers and launches without them.
 
 Model is set strictly: the value must be in `options` of the matching config option, otherwise `model_rejected` with the list. A requested model that is not a listed value but is the name before the `[` of exactly one listed value resolves to that value (Cursor: `gpt-5.4-nano` → `gpt-5.4-nano[reasoning=medium]`); a name shared by several values is `model_rejected` naming those values. An agent without a `model` config option that lists models in the session's unstable `models` field (Gemini CLI) is checked against that list the same way and set with `session/set_model`; the config option wins when both exist. `list_harnesses` shows the full values. Effort: `mapEffort` picks the option value; `undefined` → `warnings`, not an error.
 
@@ -372,7 +374,7 @@ The defaults, auto + deny, trust the harness's own auto mode and nothing more: w
 
 At one place, `permissions` next to `harness_mode` or `permission_answers` is a config error (`harnesses.codex: permissions is a shorthand for harness_mode and permission_answers; set either permissions or those two`). The shorthand expands before the per-key resolution, so a place with `permissions` sets both keys there.
 
-A `request_permission` for throng's own `submit_result` (§6) is answered `allow_once` under every setting, before the answers apply.
+A `request_permission` for throng's own `submit_result` (§6) is answered `allow_once` under every setting, before the answers apply. It is recognised by its title, or by the title an earlier `tool_call` / `tool_call_update` gave the same `toolCallId` (Copilot titles the request only `submit_result`).
 
 throng answers only the requests a harness sends. What a harness does without asking is not gated: Cursor applies file edits on its own under both harness modes ([harnesses.md](harnesses.md#cursor-cli)), so `ask` + `deny` still lets it edit `cwd`.
 
@@ -389,7 +391,7 @@ Elicitation (`elicit`, and `auto` with a capable client):
 ## 6. Structured output
 
 One mechanism for all harnesses, transport-independent, no network:
-- With `schema` the server writes the schema to a per-run temp dir (`$TMPDIR/throng-*`) and injects a stdio MCP server into `session/new.mcpServers` (or `session/resume.mcpServers`, `session/load.mcpServers`): `{ name:'throng_result', command:<absolute path of the node executable>, args:[<RunContext.submitTool>, '--schema', <path>, '--out', <path>], env:[] }` (`submitTool` is `src/structured/submit-tool.ts` on the sources, `dist/structured/submit-tool.js` in the package, §9; no `type` field: claude-agent-acp quirk; an absolute `command` because ACP wants one and codex gives MCP servers a whitelisted env). The harness spawns it itself; it exposes one tool, `submit_result({ result })`. A `request_permission` for it is answered `allow_once` under every permission setting (§5).
+- With `schema` the server writes the schema to a per-run temp dir (`$TMPDIR/throng-*`) and injects a stdio MCP server into `session/new.mcpServers` (or `session/resume.mcpServers`, `session/load.mcpServers`; for a harness with `mcpServerArgs`, into its launch args instead, §4.1): `{ name:'throng_result', command:<absolute path of the node executable>, args:[<RunContext.submitTool>, '--schema', <path>, '--out', <path>], env:[] }` (`submitTool` is `src/structured/submit-tool.ts` on the sources, `dist/structured/submit-tool.js` in the package, §9; no `type` field: claude-agent-acp quirk; an absolute `command` because ACP wants one and codex gives MCP servers a whitelisted env). The harness spawns it itself; it exposes one tool, `submit_result({ result })`. A `request_permission` for it is answered `allow_once` under every permission setting (§5).
 - The schema is the tool's `inputSchema`: wrapped as `{ type:'object', properties:{ result:<schema> }, required:['result'] }`, the schema's `$defs` / `definitions` hoisted to the wrapper root so local refs resolve, `$schema` dropped. The SDK doesn't check the arguments; submit-tool validates them itself. The prompt only gets an instruction: finish by calling `submit_result`, whose input schema describes `result`.
 - `submit_result` validates with ajv: the engine follows `$schema` (`Ajv2020` for 2020-12, draft-07 `Ajv` otherwise, also when `$schema` is absent), since the dialects differ in keyword semantics (`items` tuples vs `prefixItems`); `allErrors`, non-strict, formats not checked. Every call writes the `--out` file (last write wins): `{ ok:true, result }` with response "accepted", or `{ ok:false, errors }` with an `isError` response carrying the ajv errors, so the agent fixes it within the same turn. After `stop` the server reads the file: no file means not submitted.
 - After a turn that ends with `end_turn`, `max_tokens` or `max_turn_requests` and no valid result: corrective re-prompt ("you didn't call submit_result" / "your last call was rejected: <errors>"), at most 2. Then tool error `structured_missing` (no file) or `structured_invalid` (last call rejected; message carries the ajv errors) with `text` (the last turn's, or the latest non-empty one) and `session_id` in the payload, so the caller sees what the agent said and can resume. `refusal` / `cancelled` fail as without a schema.

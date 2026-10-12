@@ -154,6 +154,11 @@ describe('resolve', () => {
                 reason: 'cursor-agent not found on PATH; install: curl https://cursor.com/install -fsS | bash',
                 notInstalled: true,
             },
+            copilot: {
+                available: false,
+                reason: 'copilot not found on PATH; install: npm i -g @github/copilot',
+                notInstalled: true,
+            },
         });
     });
 
@@ -245,6 +250,11 @@ describe('mapEffort', () => {
         expect(HARNESSES.codex.mapEffort('xhigh', ['low', 'high'])).toBe(undefined);
     });
 
+    it('copilot: exact value or nothing', () => {
+        expect(HARNESSES.copilot.mapEffort('xhigh', ['none', 'low', 'medium', 'high', 'xhigh', 'max'])).toBe('xhigh');
+        expect(HARNESSES.copilot.mapEffort('max', ['low', 'high'])).toBe(undefined);
+    });
+
     it('opencode: exact value or nothing', () => {
         expect(HARNESSES.opencode.mapEffort('high', [])).toBe(undefined);
         expect(HARNESSES.opencode.mapEffort('high', ['low', 'high'])).toBe('high');
@@ -261,6 +271,10 @@ describe('permissionSetup', () => {
         opencode: { auto: {}, ask },
         gemini: { auto: { modeId: 'yolo', env: trust }, ask: { modeId: 'default', env: trust } },
         cursor: { auto: { args: ['--force'] }, ask: {} },
+        copilot: {
+            auto: { configOptions: [{ id: 'allow_all', value: 'on' }] },
+            ask: { env: { COPILOT_ALLOW_ALL: 'false' } },
+        },
     } as const;
 
     for (const id of HARNESS_IDS) {

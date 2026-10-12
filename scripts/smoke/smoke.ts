@@ -33,6 +33,7 @@ import type {
 // list_thronglets shows the session idle; the pong.txt and follow-up checks are skipped.
 // Gemini CLI has no session/resume (docs/harnesses.md): for harness gemini the follow-up is skipped and --steer is a usage error.
 // Cursor CLI continues a session through session/load, so its follow-up and --steer run like the others.
+// Copilot CLI continues through session/load as well.
 // Spends tokens: run by hand, one harness at a time. Exit: 0 pass, 1 any FAIL or tool error, 2 usage/availability.
 
 const USAGE =
@@ -59,12 +60,14 @@ const DEFAULT_STEER_DELAY_S = 10;
 const ORPHAN_WAIT_MS = 2 * DEFAULT_EXIT_GRACE_MS + 2000;
 // submit-tool: the structured-output server the harness spawns; its argv carries the run's temp dir under our TMPDIR.
 // gemini.*--acp: a relaunched Gemini CLI may show its package entry (`…/gemini-cli/…/index.js --acp`), not `gemini --acp`.
+// copilot.*--acp: the npm bin is a node wrapper that runs the native `…/copilot --acp`; both lines match.
 const ADAPTER_PATTERNS = [
     'claude-agent-acp',
     'codex-acp',
     'opencode acp',
     'gemini.*--acp',
     'cursor-agent',
+    'copilot.*--acp',
     `submit-tool\\.ts --schema ${escapeRegex(join(tmpdir(), 'throng-'))}`,
 ];
 const repo = resolve(fileURLToPath(new URL('../..', import.meta.url)));

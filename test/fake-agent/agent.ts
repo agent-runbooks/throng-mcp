@@ -2,6 +2,7 @@ import * as acp from '@agentclientprotocol/sdk';
 import type {
     AgentContext,
     McpServer,
+    McpServerStdio,
     PermissionOption,
     SessionConfigOption,
     SessionModeState,
@@ -29,7 +30,14 @@ const scenario = process.env.FAKE_SCENARIO ?? 'echo';
 const gemini = scenario.startsWith('gemini');
 /** cursor-*: shaped like Cursor CLI's ACP mode, the same way. */
 const cursor = scenario.startsWith('cursor');
-const turnScenario = gemini || cursor ? scenario.replace(/^(gemini|cursor)-?/, '') || 'echo' : scenario;
+/** copilot-*: shaped like Copilot CLI's ACP mode, the same way. */
+const copilot = scenario.startsWith('copilot');
+const turnScenario =
+    gemini || cursor || copilot ? scenario.replace(/^(gemini|cursor|copilot)-?/, '') || 'echo' : scenario;
+/** copilot-*: Copilot's session mode ids are URLs. */
+const COPILOT_MODES = ['agent', 'plan', 'autopilot'].map(
+    mode => `https://agentclientprotocol.com/protocol/session-modes#${mode}`
+);
 /** Gemini CLI's own model list; set_model accepts any string anyway, like the real one. */
 const GEMINI_MODELS = ['gemini-2.5-pro', 'gemini-2.5-flash'] as const;
 /** cursor-*: model values with their parameters in brackets, `default[]` (Auto) current; two share the name fake-big. */
@@ -52,6 +60,7 @@ function record(call: FakeCall): void {
 }
 
 const trust = process.env.GEMINI_CLI_TRUST_WORKSPACE;
+const allowAll = process.env.COPILOT_ALLOW_ALL;
 const probes = Object.fromEntries(
     Object.entries(process.env).filter((e): e is [string, string] => e[0].startsWith('PROBE_') && e[1] !== undefined)
 );
@@ -59,8 +68,29 @@ record({
     event: 'start',
     argv: process.argv.slice(2),
     ...(trust === undefined ? {} : { trustWorkspace: trust }),
+    ...(allowAll === undefined ? {} : { allowAll }),
     ...(Object.keys(probes).length ? { probes } : {}),
 });
+/** copilot-*: the stdio servers of `--additional-mcp-config <json>`, in the shape of an ACP session request. */
+const launchServers: McpServerStdio[] = (() => {
+    const at = process.argv.indexOf('--additional-mcp-config');
+    if (!copilot || at < 0) return [];
+    const config = JSON.parse(process.argv[at + 1] ?? '') as {
+        mcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
+    };
+    return Object.entries(config.mcpServers).map(([name, server]) => ({
+        name,
+        command: server.command,
+        args: server.args ?? [],
+        env: Object.entries(server.env ?? {}).map(([envName, value]) => ({ name: envName, value })),
+    }));
+})();
+
+/** The servers a session gets: copilot-* drops those of the request (Copilot refuses stdio) and uses the launch arg's. */
+function sessionServers(requested: McpServer[]): McpServer[] {
+    return copilot ? launchServers : requested;
+}
+
 /** FAKE_STDERR: a line written to stderr at startup, before the handshake. */
 if (process.env.FAKE_STDERR) process.stderr.write(`${process.env.FAKE_STDERR}\n`);
 
@@ -148,6 +178,27 @@ function freshSession(resumed: boolean, cwd: string, mcpServers: McpServer[]): F
         session.configOptions = [];
         session.model = GEMINI_MODELS[0];
     }
+    if (copilot) {
+        session.modeId = COPILOT_MODES[0] ?? '';
+        session.configOptions.push(
+            {
+                id: 'mode',
+                name: 'Mode',
+                category: 'mode',
+                type: 'select',
+                currentValue: session.modeId,
+                options: COPILOT_MODES.map(value => ({ value, name: value })),
+            },
+            {
+                id: 'allow_all',
+                name: 'Allow all',
+                category: 'permissions',
+                type: 'select',
+                currentValue: 'off',
+                options: ['on', 'off'].map(value => ({ value, name: value })),
+            }
+        );
+    }
     if (cursor) {
         session.modeId = 'agent';
         session.configOptions = [
@@ -173,6 +224,9 @@ function freshSession(resumed: boolean, cwd: string, mcpServers: McpServer[]): F
 }
 
 function modes(session: FakeSession): SessionModeState {
+    if (copilot) {
+        return { currentModeId: session.modeId, availableModes: COPILOT_MODES.map(id => ({ id, name: id })) };
+    }
     if (cursor) {
         return {
             currentModeId: session.modeId,
@@ -250,6 +304,16 @@ async function submit(session: FakeSession, result: unknown): Promise<{ isError:
         await client.close();
     }
 }
+
+/** copilot-*: the tool runs without a permission request (allow_all on, or COPILOT_ALLOW_ALL=true). */
+function copilotApproves(session: FakeSession): boolean {
+    return allowAll === 'true' || optionValue(session, 'allow_all') === 'on';
+}
+
+/** copilot-*: Copilot's permission options, ids equal to their kinds. */
+const COPILOT_PERMISSION_OPTIONS: PermissionOption[] = (['allow_once', 'allow_always', 'reject_once'] as const).map(
+    kind => ({ optionId: kind, name: kind, kind })
+);
 
 /** Resolves after a tick, rejects if the prompt was cancelled meanwhile. */
 function step(signal: AbortSignal): Promise<void> {
@@ -358,6 +422,42 @@ async function runTurn(sessionId: string, text: string, client: AgentContext, si
             await say(`turn ${session.prompts}`);
             return;
         case 'submit-ask': {
+            if (copilot) {
+                // Copilot titles the tool_call `<server>-<tool>` and the permission request for it only `<tool>`.
+                await send({
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 't3',
+                    title: process.env.FAKE_TOOL_TITLE ?? 'throng_result-submit_result',
+                    kind: 'other',
+                    status: 'pending',
+                });
+                if (process.env.FAKE_TOOL_RETITLE) {
+                    await send({
+                        sessionUpdate: 'tool_call_update',
+                        toolCallId: 't3',
+                        title: process.env.FAKE_TOOL_RETITLE,
+                    });
+                }
+                if (!copilotApproves(session)) {
+                    const answer = await client.request(acp.methods.client.session.requestPermission, {
+                        sessionId,
+                        toolCall: {
+                            toolCallId: 't3',
+                            title: 'submit_result',
+                            kind: 'other',
+                            status: 'pending',
+                            rawInput: { result: VALID_SUBMIT },
+                        },
+                        options: COPILOT_PERMISSION_OPTIONS,
+                    });
+                    if (answer.outcome.outcome !== 'selected' || answer.outcome.optionId !== 'allow_once') {
+                        await say('denied');
+                        return;
+                    }
+                }
+                await submit(session, VALID_SUBMIT);
+                return;
+            }
             // Like a harness that asks before an MCP tool: submits only if throng allows it.
             const answer = await client.request(acp.methods.client.session.requestPermission, {
                 sessionId,
@@ -394,21 +494,35 @@ async function runTurn(sessionId: string, text: string, client: AgentContext, si
             });
             return;
         case 'permission': {
-            // cursor-permission: Cursor asks before shell commands, with its own option ids.
-            const options: PermissionOption[] = cursor
-                ? [
-                      { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
-                      { optionId: 'allow-always', name: 'Allow always', kind: 'allow_always' },
-                      { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
-                  ]
-                : [
-                      { optionId: 'yes', name: 'Allow', kind: 'allow_once' },
-                      { optionId: 'always', name: 'Always', kind: 'allow_always' },
-                      { optionId: 'no', name: 'Reject', kind: 'reject_once' },
-                  ];
-            const toolCall: ToolCallUpdate = cursor
-                ? { toolCallId: 't2', title: 'ls', kind: 'execute', status: 'pending' }
-                : { toolCallId: 't2', title: 'write notes.txt', kind: 'edit', status: 'pending' };
+            if (copilot && copilotApproves(session)) {
+                await say('allowed');
+                return;
+            }
+            // cursor-permission: Cursor asks before shell commands, with its own option ids; copilot-permission too.
+            const options: PermissionOption[] = copilot
+                ? COPILOT_PERMISSION_OPTIONS
+                : cursor
+                  ? [
+                        { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+                        { optionId: 'allow-always', name: 'Allow always', kind: 'allow_always' },
+                        { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
+                    ]
+                  : [
+                        { optionId: 'yes', name: 'Allow', kind: 'allow_once' },
+                        { optionId: 'always', name: 'Always', kind: 'allow_always' },
+                        { optionId: 'no', name: 'Reject', kind: 'reject_once' },
+                    ];
+            const toolCall: ToolCallUpdate = copilot
+                ? {
+                      toolCallId: 't2',
+                      title: 'List files',
+                      kind: 'execute',
+                      status: 'pending',
+                      rawInput: { command: 'ls' },
+                  }
+                : cursor
+                  ? { toolCallId: 't2', title: 'ls', kind: 'execute', status: 'pending' }
+                  : { toolCallId: 't2', title: 'write notes.txt', kind: 'edit', status: 'pending' };
             const answer = await client.request(acp.methods.client.session.requestPermission, {
                 sessionId,
                 toolCall,
@@ -522,9 +636,9 @@ app =
               protocolVersion: acp.PROTOCOL_VERSION,
               agentInfo: { name: 'fake-agent', version: '0.0.1' },
               agentCapabilities: {
-                  sessionCapabilities: scenario === 'no-resume' || gemini || cursor ? {} : { resume: {} },
+                  sessionCapabilities: scenario === 'no-resume' || gemini || cursor || copilot ? {} : { resume: {} },
                   promptCapabilities: {},
-                  ...(gemini || cursor ? { loadSession: true } : {}),
+                  ...(gemini || cursor || copilot ? { loadSession: true } : {}),
               },
               ...(cursor ? { authMethods: [{ id: 'cursor_login', name: 'Cursor Login' }] } : {}),
           }));
@@ -564,7 +678,8 @@ app.onRequest('authenticate', ctx => {
 app.onRequest('session/new', async ctx => {
     requireAuth();
     const sessionId = `fake-${randomUUID()}`;
-    const session = freshSession(false, ctx.params.cwd, ctx.params.mcpServers);
+    if (copilot) record({ event: 'new', mcpServers: ctx.params.mcpServers.map(s => s.name) });
+    const session = freshSession(false, ctx.params.cwd, sessionServers(ctx.params.mcpServers));
     sessions.set(sessionId, session);
     await earlyUpdate(sessionId, ctx.client);
     if (gemini) return { sessionId, modes: modes(session), models: models(session) };
@@ -580,13 +695,17 @@ app.onRequest('session/new', async ctx => {
         return { modes: modes(session), configOptions: session.configOptions };
     })
     .onRequest('session/load', async ctx => {
-        record({ event: 'load', sessionId: ctx.params.sessionId });
+        record({
+            event: 'load',
+            sessionId: ctx.params.sessionId,
+            ...(copilot ? { mcpServers: ctx.params.mcpServers.map(s => s.name) } : {}),
+        });
         requireAuth();
         const { sessionId } = ctx.params;
         if (['resume-memory', 'steer'].includes(turnScenario) && !(await readNotes(sessionId))) {
             throw acp.RequestError.invalidParams(undefined, `unknown session ${sessionId}`);
         }
-        const session = freshSession(true, ctx.params.cwd, ctx.params.mcpServers);
+        const session = freshSession(true, ctx.params.cwd, sessionServers(ctx.params.mcpServers));
         sessions.set(sessionId, session);
         await replayHistory(sessionId, ctx.client);
         return { modes: modes(session), configOptions: session.configOptions };
