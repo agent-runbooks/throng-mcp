@@ -8,7 +8,7 @@ import { gemini } from './gemini.ts';
 import { opencode } from './opencode.ts';
 import type { HarnessDefinition } from './types.ts';
 
-export { findOnPath, installHint, loadRegistry } from './discovery.ts';
+export { findOnPath } from './discovery.ts';
 
 /** The built-in harnesses (DESIGN §4.1). */
 export const HARNESSES: Record<HarnessId, HarnessDefinition> = { claude, codex, opencode, gemini, cursor };

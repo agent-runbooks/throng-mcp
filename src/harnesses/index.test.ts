@@ -1,27 +1,14 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { type Config, DEFAULT_CONFIG, type HarnessMode } from '../config.ts';
 import { HARNESS_IDS } from '../contract.ts';
-import {
-    HARNESSES,
-    findOnPath,
-    harnessFor,
-    harnessIds,
-    installHint,
-    loadRegistry,
-    shadowedHarnesses,
-} from './index.ts';
-import type { HarnessLaunch, HarnessResolution, RegistrySnapshot } from './types.ts';
+import { HARNESSES, findOnPath, harnessFor, harnessIds, shadowedHarnesses } from './index.ts';
+import type { HarnessLaunch, HarnessResolution } from './types.ts';
 
 const root = mkdtempSync(join(tmpdir(), 'throng-harnesses-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
-
-const registry = loadRegistry();
-const raw = JSON.parse(readFileSync(new URL('../../data/registry.json', import.meta.url), 'utf8')) as RegistrySnapshot;
-const npxPackage = (id: string) =>
-    raw.agents.find(a => a.id === id)?.distribution?.npx?.package.replace(/@[^@/]*$/, '');
 
 let dirs = 0;
 /** A fresh PATH dir holding executable stubs for `bins`. */
@@ -51,19 +38,7 @@ function reasonOf(resolution: HarnessResolution): string {
 
 const ALL_BINS = ['claude-agent-acp', 'claude', 'codex-acp', 'codex', 'opencode', 'gemini'];
 
-describe('registry and PATH lookup', () => {
-    it('loadRegistry reads data/registry.json once', () => {
-        expect(loadRegistry()).toBe(registry);
-        expect(registry.agents.length).toBe(raw.agents.length);
-    });
-
-    it('installHint: npx package, binary pointer, unknown id', () => {
-        expect(installHint(registry, 'claude-acp')).toBe(`npm i -g ${npxPackage('claude-acp')}`);
-        expect(installHint(registry, 'codex-acp')).toBe(`npm i -g ${npxPackage('codex-acp')}`);
-        expect(installHint(registry, 'opencode')).toMatch(/opencode\.ai/);
-        expect(installHint(registry, 'nope')).toBe('no install hint in the registry snapshot');
-    });
-
+describe('PATH lookup', () => {
     it('findOnPath skips non-executable files, directories and relative entries', () => {
         const plain = pathDir([]);
         writeFileSync(join(plain, 'tool'), '');
@@ -79,13 +54,6 @@ describe('registry and PATH lookup', () => {
     it('HARNESSES covers every harness id', () => {
         expect(Object.keys(HARNESSES)).toStrictEqual([...HARNESS_IDS]);
         for (const id of HARNESS_IDS) expect(harnessFor(id, DEFAULT_CONFIG)?.id).toBe(id);
-        expect(HARNESS_IDS.map(id => harnessFor(id, DEFAULT_CONFIG)?.registryId)).toStrictEqual([
-            'claude-acp',
-            'codex-acp',
-            'opencode',
-            'gemini',
-            'cursor',
-        ]);
     });
 });
 
@@ -103,7 +71,6 @@ describe('harnessFor and harnessIds', () => {
         expect(harnessFor('claude', config)).toBe(HARNESSES.claude);
         const kimi = harnessFor('kimi', config);
         expect(kimi?.id).toBe('kimi');
-        expect(kimi?.registryId).toBe(undefined);
         expect(harnessFor('glm', config)).toBe(undefined);
         expect(harnessFor('kimi', DEFAULT_CONFIG)).toBe(undefined);
         expect(harnessFor('constructor', config)).toBe(undefined);
@@ -119,9 +86,8 @@ describe('harnessFor and harnessIds', () => {
         if (!def) expect.unreachable('custom claude not found');
         expect(def).not.toBe(HARNESSES.claude);
         expect(def.id).toBe('claude');
-        expect(def.registryId).toBe(undefined);
         const dir = pathDir(['my-claude', 'other-claude', 'claude-agent-acp']);
-        expect(launchOf(def.resolve(shadowing, registry, { PATH: dir }))).toStrictEqual({
+        expect(launchOf(def.resolve(shadowing, { PATH: dir }))).toStrictEqual({
             command: join(dir, 'my-claude'),
             args: ['acp'],
             env: {},
@@ -136,56 +102,79 @@ describe('resolve', () => {
     it('all present: adapters from PATH, harness binaries in env', () => {
         const dir = pathDir(ALL_BINS);
         const env = { PATH: dir };
-        expect(launchOf(HARNESSES.claude.resolve(DEFAULT_CONFIG, registry, env))).toStrictEqual({
+        expect(launchOf(HARNESSES.claude.resolve(DEFAULT_CONFIG, env))).toStrictEqual({
             command: join(dir, 'claude-agent-acp'),
             args: [],
             env: { CLAUDE_CODE_EXECUTABLE: join(dir, 'claude') },
         });
-        expect(launchOf(HARNESSES.codex.resolve(DEFAULT_CONFIG, registry, env))).toStrictEqual({
+        expect(launchOf(HARNESSES.codex.resolve(DEFAULT_CONFIG, env))).toStrictEqual({
             command: join(dir, 'codex-acp'),
             args: [],
             env: { CODEX_PATH: join(dir, 'codex') },
         });
-        expect(launchOf(HARNESSES.opencode.resolve(DEFAULT_CONFIG, registry, env))).toStrictEqual({
+        expect(launchOf(HARNESSES.opencode.resolve(DEFAULT_CONFIG, env))).toStrictEqual({
             command: join(dir, 'opencode'),
             args: ['acp'],
             env: {},
         });
-        expect(launchOf(HARNESSES.gemini.resolve(DEFAULT_CONFIG, registry, env))).toStrictEqual({
+        expect(launchOf(HARNESSES.gemini.resolve(DEFAULT_CONFIG, env))).toStrictEqual({
             command: join(dir, 'gemini'),
             args: ['--acp'],
             env: {},
         });
     });
 
-    it('adapter missing: unavailable with the install command from the registry', () => {
+    it('adapter missing, no override: not installed, the reason carries the install command', () => {
         const env = { PATH: pathDir(['claude', 'codex']) };
-        const claude = reasonOf(HARNESSES.claude.resolve(DEFAULT_CONFIG, registry, env));
-        expect(claude).toContain('claude-agent-acp not found on PATH');
-        expect(claude).toContain(`npm i -g ${npxPackage('claude-acp')}`);
-        expect(claude).toContain('npm i -g @agentclientprotocol/claude-agent-acp');
+        expect(
+            Object.fromEntries(HARNESS_IDS.map(id => [id, HARNESSES[id].resolve(DEFAULT_CONFIG, env)]))
+        ).toStrictEqual({
+            claude: {
+                available: false,
+                reason: 'claude-agent-acp not found on PATH; install: npm i -g @agentclientprotocol/claude-agent-acp',
+                notInstalled: true,
+            },
+            codex: {
+                available: false,
+                reason: 'codex-acp not found on PATH; install: npm i -g @agentclientprotocol/codex-acp',
+                notInstalled: true,
+            },
+            opencode: {
+                available: false,
+                reason: 'opencode not found on PATH; install: see https://opencode.ai/docs (binary install)',
+                notInstalled: true,
+            },
+            gemini: {
+                available: false,
+                reason: 'gemini not found on PATH; install: npm i -g @google/gemini-cli',
+                notInstalled: true,
+            },
+            cursor: {
+                available: false,
+                reason: 'cursor-agent not found on PATH; install: curl https://cursor.com/install -fsS | bash',
+                notInstalled: true,
+            },
+        });
+    });
 
-        const codex = reasonOf(HARNESSES.codex.resolve(DEFAULT_CONFIG, registry, env));
-        expect(codex).toContain('codex-acp not found on PATH');
-        expect(codex).toContain('npm i -g @agentclientprotocol/codex-acp');
-
-        const opencode = reasonOf(HARNESSES.opencode.resolve(DEFAULT_CONFIG, registry, env));
-        expect(opencode).toContain('opencode not found on PATH');
-        expect(opencode).toContain('opencode.ai');
-
-        const gemini = reasonOf(HARNESSES.gemini.resolve(DEFAULT_CONFIG, registry, env));
-        expect(gemini).toBe('gemini not found on PATH; install: npm i -g @google/gemini-cli');
+    it('an override without command does not count: adapter missing is still not installed', () => {
+        const config = withHarnesses({ claude: { env: { EXTRA: '1' }, args: ['--flag'], harness_mode: 'ask' } });
+        expect(HARNESSES.claude.resolve(config, { PATH: pathDir(['claude']) })).toStrictEqual({
+            available: false,
+            reason: 'claude-agent-acp not found on PATH; install: npm i -g @agentclientprotocol/claude-agent-acp',
+            notInstalled: true,
+        });
     });
 
     it('harness binary missing alone does not make the harness unavailable', () => {
         const env = { PATH: pathDir(['claude-agent-acp', 'codex-acp']) };
-        expect(launchOf(HARNESSES.claude.resolve(DEFAULT_CONFIG, registry, env)).env).toStrictEqual({});
-        expect(launchOf(HARNESSES.codex.resolve(DEFAULT_CONFIG, registry, env)).env).toStrictEqual({});
+        expect(launchOf(HARNESSES.claude.resolve(DEFAULT_CONFIG, env)).env).toStrictEqual({});
+        expect(launchOf(HARNESSES.codex.resolve(DEFAULT_CONFIG, env)).env).toStrictEqual({});
     });
 
     it('harness binary env var already set in the server environment is left alone', () => {
         const env = { PATH: pathDir(['claude-agent-acp', 'claude']), CLAUDE_CODE_EXECUTABLE: '/elsewhere/claude' };
-        expect(launchOf(HARNESSES.claude.resolve(DEFAULT_CONFIG, registry, env)).env).toStrictEqual({});
+        expect(launchOf(HARNESSES.claude.resolve(DEFAULT_CONFIG, env)).env).toStrictEqual({});
     });
 
     it('config override: command, args and env win; configured env is not overwritten from PATH', () => {
@@ -199,36 +188,37 @@ describe('resolve', () => {
             },
             codex: { env: { OTHER: 'x' } },
         });
-        expect(launchOf(HARNESSES.claude.resolve(config, registry, { PATH: dir }))).toStrictEqual({
+        expect(launchOf(HARNESSES.claude.resolve(config, { PATH: dir }))).toStrictEqual({
             command: custom,
             args: ['--flag'],
             env: { CLAUDE_CODE_EXECUTABLE: '/custom/claude', EXTRA: '1' },
         });
         // Config env merges over the PATH-derived harness env.
-        expect(launchOf(HARNESSES.codex.resolve(config, registry, { PATH: dir })).env).toStrictEqual({
+        expect(launchOf(HARNESSES.codex.resolve(config, { PATH: dir })).env).toStrictEqual({
             CODEX_PATH: join(dir, 'codex'),
             OTHER: 'x',
         });
     });
 
-    it('config override: bare command is looked up on PATH; a missing one is named in the reason', () => {
+    it('config override: bare command is looked up on PATH; a missing one is named in the reason and not marked notInstalled', () => {
         const dir = pathDir(['my-opencode']);
         const found = withHarnesses({ opencode: { command: 'my-opencode' } });
-        expect(launchOf(HARNESSES.opencode.resolve(found, registry, { PATH: dir }))).toStrictEqual({
+        expect(launchOf(HARNESSES.opencode.resolve(found, { PATH: dir }))).toStrictEqual({
             command: join(dir, 'my-opencode'),
             args: ['acp'],
             env: {},
         });
 
         const bare = withHarnesses({ opencode: { command: 'nope-opencode' } });
-        const bareReason = reasonOf(HARNESSES.opencode.resolve(bare, registry, { PATH: dir }));
-        expect(
-            bareReason.startsWith('nope-opencode (harnesses.opencode.command) not found on PATH; install: '),
-            bareReason
-        ).toBe(true);
+        expect(HARNESSES.opencode.resolve(bare, { PATH: dir })).toStrictEqual({
+            available: false,
+            reason: 'nope-opencode (harnesses.opencode.command) not found on PATH; install: see https://opencode.ai/docs (binary install)',
+        });
 
         const path = withHarnesses({ claude: { command: join(root, 'no-such-adapter') } });
-        const pathReason = reasonOf(HARNESSES.claude.resolve(path, registry, { PATH: pathDir(ALL_BINS) }));
+        const pathResolution = HARNESSES.claude.resolve(path, { PATH: pathDir(ALL_BINS) });
+        expect(pathResolution).not.toHaveProperty('notInstalled');
+        const pathReason = reasonOf(pathResolution);
         expect(
             pathReason.startsWith(
                 `${join(root, 'no-such-adapter')} (harnesses.claude.command) not found or not executable`

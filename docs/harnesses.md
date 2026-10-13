@@ -6,7 +6,6 @@ How each built-in harness behaves under throng: what you will notice when you us
 
 | | claude | codex | opencode | gemini | cursor |
 |---|---|---|---|---|---|
-| registry id | `claude-acp` | `codex-acp` | `opencode` | `gemini` | `cursor` |
 | adapter on PATH | `claude-agent-acp` | `codex-acp` | `opencode acp` | `gemini --acp` | `cursor-agent acp` |
 | install hint | `npm i -g @agentclientprotocol/claude-agent-acp` | `npm i -g @agentclientprotocol/codex-acp` | opencode install docs | `npm i -g @google/gemini-cli` | `curl https://cursor.com/install -fsS \| bash` |
 | harness on PATH | `claude` → `CLAUDE_CODE_EXECUTABLE` | `codex` → `CODEX_PATH` | same binary | same binary | same binary |

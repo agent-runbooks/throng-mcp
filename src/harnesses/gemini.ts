@@ -5,15 +5,14 @@ import type { HarnessDefinition } from './types.ts';
 // Gemini CLI speaks ACP itself (`gemini --acp`), so the adapter and the harness are one binary.
 const spec: AdapterSpec = {
     id: 'gemini',
-    registryId: 'gemini',
+    installHint: 'npm i -g @google/gemini-cli',
     adapter: 'gemini',
     args: ['--acp'],
 };
 
 export const gemini: HarnessDefinition = {
     id: spec.id,
-    registryId: spec.registryId,
-    resolve: (config, registry, env) => resolveAdapter(spec, config, registry, env),
+    resolve: (config, env) => resolveAdapter(spec, config, env),
     // Gemini CLI exposes no thought_level option (docs/harnesses.md).
     mapEffort: () => undefined,
     // Trust under both modes: an untrusted folder refuses `yolo` and starts no MCP servers, throng's submit_result included.

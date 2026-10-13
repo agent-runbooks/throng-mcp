@@ -5,15 +5,14 @@ import type { HarnessDefinition } from './types.ts';
 // Cursor CLI speaks ACP itself (`cursor-agent acp`), so the adapter and the harness are one binary (docs/harnesses.md).
 const spec: AdapterSpec = {
     id: 'cursor',
-    registryId: 'cursor',
+    installHint: 'curl https://cursor.com/install -fsS | bash',
     adapter: 'cursor-agent',
     args: ['acp'],
 };
 
 export const cursor: HarnessDefinition = {
     id: spec.id,
-    registryId: spec.registryId,
-    resolve: (config, registry, env) => resolveAdapter(spec, config, registry, env),
+    resolve: (config, env) => resolveAdapter(spec, config, env),
     // No thought_level option: effort is part of the model value (`…[reasoning=medium]`).
     mapEffort: () => undefined,
     // `--force` auto-approves shell, MCP tools and web search; edits never ask. The default mode `agent` serves both.

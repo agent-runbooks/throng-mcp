@@ -150,7 +150,7 @@ The `:<effort>` suffix of the agent spec is taken as effort only when it is `low
 
 | what you see | what to do |
 |---|---|
-| `harness_unavailable` | the adapter isn't on PATH, and the message carries the install command; or the config is broken (message starts with `config error:`): fix the yaml, throng won't run on defaults |
+| `harness_unavailable`, or a built-in harness missing from `list_harnesses` | the adapter isn't on PATH (`list_harnesses` lists only installed harnesses), and the `harness_unavailable` message carries the install command; or the config is broken (message starts with `config error:`): fix the yaml, throng won't run on defaults |
 | `harness_unavailable` on a custom harness | `<command> (custom_harnesses.<id>.command) not found on PATH`: install the agent or fix `command` (a name on PATH or a path). `Unknown harness "<id>"`: the id is neither built in nor in the config; the message lists the valid ones. A session whose custom harness has since left the config gets the same error from `send_message`, unless its id is a built-in one: then the built-in harness gets the message |
 | `elicitation_unsupported` | `permission_answers: elicit` (or `permissions: elicit`), globally or per harness, but the MCP client has no elicitation support; the message names the key. Use a client that has it, or set the key to another value (`permission_answers: auto` asks when it can and rejects otherwise) |
 | `model_rejected` | the model isn't one of the harness's values. Call `list_harnesses` for the current list; they are the harness's own option values and change with harness versions. A name before the `[` of a value (`cursor/gpt-5.4-nano` for `gpt-5.4-nano[reasoning=medium]`) works only when one value has that name |

@@ -28,7 +28,7 @@ node 24.11.1, pnpm 11.10, claude 2.1.282, codex 0.156.1, opencode 1.18.30. `curs
 
 How each harness CLI or adapter behaves over ACP (versions checked, capabilities, modes, auth, quirks) is in [harnesses.md](harnesses.md), not here: it is knowledge about third-party CLIs, and the design depends on it only through the harness definitions (§4.1).
 
-ACP registry (`https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`, format v1.0.0, 41 agents): `{id, name, version, description, distribution: npx{package,args,env} | binary{platform → {archive, cmd, args}}}`. Relevant ids: `claude-acp`, `codex-acp`, `opencode`, `gemini`, `cursor`. It gives launch commands only; model/effort/mode knobs differ per adapter.
+The ACP registry (`https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`) lists ACP agents with their npm packages or binaries. It gives launch commands only; model/effort/mode knobs differ per adapter. throng doesn't read it: the install hints are fixed in the harness definitions (§4.1).
 
 ### 2.4 Claude Code 2.1.282 as an MCP client
 
@@ -153,12 +153,14 @@ output: {
     models: string[];
     efforts: string[];       // config option category 'thought_level'; empty when the harness has none
   }>;
-  unavailable: Array<{ harness: string; reason: string }>;   // adapter not found (+ install command for a built-in harness), config error, probe failed
+  unavailable: Array<{ harness: string; reason: string }>;   // installed or configured but not usable: config error, configured command not found, probe failed
   limits: { max_concurrency; max_depth; default_timeout_s; current_depth };
 }
 ```
 
 Every available harness is started through ACP on each call (in parallel, no prompt, `session/new` in a throwaway temp dir, seconds, no tokens) to read the current `models`/`efforts`. A harness whose probe fails (handshake error, timeout) goes to `unavailable` with the error text. No caching.
+
+A built-in harness that is not installed (its adapter is not on PATH and `harnesses.<id>.command` is not set) is in neither list: the calling model can't run it, and a row per missing harness would cost context on every call. `run_thronglet` on it fails with `harness_unavailable` naming what to install (§4.1).
 
 ### 3.5 Registration
 
@@ -227,7 +229,6 @@ output: { session_id: string; state: 'idle'; cancelled_turn: boolean }
 ## 4. Architecture
 
 ```
-data/registry.json          — snapshot of the ACP registry (§4.1)
 src/
   mcp.ts                    — entry: config, semaphore, StdioServerTransport, shutdown hooks
   mcp/
@@ -240,7 +241,7 @@ src/
   harnesses/
     types.ts                — HarnessDefinition
     claude.ts codex.ts opencode.ts gemini.ts cursor.ts
-    index.ts discovery.ts   — registry snapshot + PATH resolution + discovery
+    index.ts discovery.ts   — harness lookup, PATH resolution, install hints
     select.ts               — model/effort selection by option category
   acp/
     process.ts              — spawn in own process group, kill tree, descendant snapshot
@@ -270,23 +271,21 @@ Layers: `mcp/` knows about MCP and nothing else calls it; `run.ts` gets progress
 
 throng-mcp ships no adapters and no harnesses (decision-3). The user installs both; throng finds them on PATH.
 
-How each built-in harness is wired (registry id, adapter command, install hint, auth, model, effort, both harness modes, continuation) is tabled in [harnesses.md](harnesses.md#overview).
+How each built-in harness is wired (adapter command, install hint, auth, model, effort, both harness modes, continuation) is tabled in [harnesses.md](harnesses.md#overview).
 
 Gemini runs with `GEMINI_CLI_TRUST_WORKSPACE=true` under both harness modes, not only `auto`: without it the folder is untrusted, `yolo` is refused and the `submit_result` server (§6) never starts. The caller chose `cwd`, and nobody is there to answer a trust dialog.
 
-Availability is decided by the adapter command only. Adapter not on PATH → `unavailable` with `reason` = `<command> not found on PATH; install: <hint>`, and `run_thronglet` fails with `harness_unavailable` and the same text before spawn. The harness binary is optional: when `claude`/`codex` is on PATH, its absolute path goes into `CLAUDE_CODE_EXECUTABLE`/`CODEX_PATH` (unless config sets them), so the adapter runs the user's installed and logged-in harness; otherwise the adapter falls back to its bundled platform package, and if that is missing too, the probe fails at handshake and the adapter's error lands in `reason`. Everything past "the command exists" is checked by the probe (§3.4), not by guessing.
+Availability is decided by the adapter command only. Adapter not on PATH and no `harnesses.<id>.command` → the harness is not installed (`notInstalled`): `list_harnesses` leaves it out (§3.4), and `run_thronglet` fails with `harness_unavailable` and `<command> not found on PATH; install: <hint>` before spawn. A configured command that is not found is a broken config rather than a missing install: `unavailable` with `<value> (harnesses.<id>.command) not found on PATH; install: <hint>` (`not found or not executable` for a path), and the same text in `harness_unavailable`. The harness binary is optional: when `claude`/`codex` is on PATH, its absolute path goes into `CLAUDE_CODE_EXECUTABLE`/`CODEX_PATH` (unless config sets them), so the adapter runs the user's installed and logged-in harness; otherwise the adapter falls back to its bundled platform package, and if that is missing too, the probe fails at handshake and the adapter's error lands in `reason`. Everything past "the command exists" is checked by the probe (§3.4), not by guessing.
 
-Install hints for npm adapters come from `distribution.npx.package` of the registry snapshot with its version dropped: the user installs the latest adapter, `list_harnesses` shows which one. OpenCode and Cursor ship as binaries, so their hints are fixed: OpenCode's install docs, Cursor's install script. `npm i -g --omit=optional` skips the platform packages (~500 MB for both adapters, decision-1); it's safe only with the harness on PATH and isn't documented.
-
-`data/registry.json` is a verbatim snapshot of the ACP registry. It supplies the install hints of the built-in harnesses; commands come from the harness definitions.
+Install hints are fixed in each harness definition. For an npm adapter the hint is `npm i -g <package>` without a version: the user installs the latest adapter, `list_harnesses` shows which one. OpenCode and Cursor ship as binaries, so their hints point to OpenCode's install docs and Cursor's install script. `npm i -g --omit=optional` skips the platform packages (~500 MB for both adapters, decision-1); it's safe only with the harness on PATH and isn't documented.
 
 Config (§8) can override `command`/`args`/`env` per harness, e.g. to point at an adapter outside PATH.
 
 ```ts
 interface HarnessDefinition {                 // src/harnesses/types.ts
   id: string;                                 // a built-in id, or a custom harness's config key
-  registryId?: string;                        // built-ins: where the install hint comes from
-  resolve(config, registry, env?): { available: true; launch: { command; args; env } } | { available: false; reason: string };
+  resolve(config, env?): { available: true; launch: { command; args; env } }
+    | { available: false; reason: string; notInstalled?: true };   // notInstalled: built-in adapter not on PATH, no command override
   mapEffort(level: Effort, options: string[]): string | undefined;   // our level → option value; undefined = not applicable → warning
   permissionSetup(mode: 'auto' | 'ask'): {                            // harness_mode only; the answers are throng's (§5)
     modeId?: string;
@@ -453,7 +452,7 @@ Logs: server stderr has short lines (worker start/stop, errors, every permission
 
 - `package.json`: published to npm, `type: module`, `bin: { throng-mcp: dist/mcp.js }`, `files: [dist, skills, docs, README.md, LICENSE]`, `engines.node: ^22.13 || >=24`. pnpm. Runtime libraries: `@modelcontextprotocol/sdk` ^1 (latest), `@agentclientprotocol/sdk` ^1.5.0, `ajv` ^8, `zod` ^4, `yaml` ^2; they are `devDependencies` bundled into `dist/`, so the package has no runtime dependencies. Other dev: `typescript` (6.x: typescript-eslint has no support for the 7.x native compiler package yet), `@types/node`, `vitest`, `eslint` + `typescript-eslint` (`strictTypeChecked` + `stylisticTypeChecked`), `prettier`, `lefthook`, `tsdown`, `@changesets/cli` + `@changesets/changelog-github`. No adapters (§4.1).
 - Development, tests and smoke run the sources with `node src/mcp.ts`, no transpilation (type stripping, Node >= 22.18 or 24): no `enum`, `namespace`, parameter properties, `import =`. tsconfig: `strict`, `erasableSyntaxOnly`, `verbatimModuleSyntax`, `allowImportingTsExtensions`, `module: nodenext`, `noEmit`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, `resolveJsonModule`. Imports with `.ts`.
-- Published as a tsdown bundle (`tsdown.config.ts`), since Node refuses to strip types under `node_modules`: two ESM entries for Node 22, `dist/mcp.js` (the bin) and `dist/structured/submit-tool.js` (spawned for `schema` runs). The bundle is self-contained: tsdown bundles `devDependencies`, which hold every runtime library, and a rolldown plugin (`scripts/build/third-party-licenses.ts`) writes `dist/THIRD_PARTY_LICENSES.md` with the name, version, license and license text of every package with code in the bundle. `src/mcp.ts` computes the submit tool's path from its own `import.meta.url` (`.ts` next to the sources, `.js` in `dist/`) and passes it down to `RunContext.submitTool`: inside the bundle only the entry's `import.meta.url` is reliable. `package.json` (the version) and `data/registry.json` are JSON imports, inlined into the bundle, so `data/` is not shipped. `dist/` is ignored by git, prettier and eslint.
+- Published as a tsdown bundle (`tsdown.config.ts`), since Node refuses to strip types under `node_modules`: two ESM entries for Node 22, `dist/mcp.js` (the bin) and `dist/structured/submit-tool.js` (spawned for `schema` runs). The bundle is self-contained: tsdown bundles `devDependencies`, which hold every runtime library, and a rolldown plugin (`scripts/build/third-party-licenses.ts`) writes `dist/THIRD_PARTY_LICENSES.md` with the name, version, license and license text of every package with code in the bundle. `src/mcp.ts` computes the submit tool's path from its own `import.meta.url` (`.ts` next to the sources, `.js` in `dist/`) and passes it down to `RunContext.submitTool`: inside the bundle only the entry's `import.meta.url` is reliable. `package.json` (the version) is a JSON import, inlined into the bundle. `dist/` is ignored by git, prettier and eslint.
 - Scripts: `pnpm build` (`tsdown`; also `prepack`), `pnpm typecheck` (`tsc --noEmit`), `pnpm test` (`vitest --run`; `pnpm test:watch` for watch mode), `pnpm lint` (`eslint .`), `pnpm fmt` (`prettier --write`), `pnpm smoke:<harness>`. The `ci:*` variants are what GitHub Actions runs (`.github/workflows/ci.yml`: lint, typecheck, prettier check, `ci:build`, tests on Node 22, 24 and 26, `ci:changesets` = `changeset status --since=origin/main`). Releases: `pnpm changeset` (`changeset add`); `.github/workflows/release.yml` on push to main runs `ci:version` (`changeset version`) or `ci:publish` (`ci:build` + `changeset publish`) through `changesets/action`. The lefthook pre-commit hook runs fmt, lint --fix and typecheck.
 - `scripts/pack.test.ts` (part of `pnpm test`) checks the package as npm ships it: `pnpm pack` into a temp dir, the tarball holds only `dist/`, `skills/`, `docs/`, README, LICENSE and `package.json`; its `package.json` has no `dependencies` or `peerDependencies`, `dist/THIRD_PARTY_LICENSES.md` is there and names `@modelcontextprotocol/sdk` and `zod`, `dist/` is under 2 MB; unpacked, with no `node_modules` at all, `node dist/mcp.js` answers `list_harnesses` and a `run_thronglet` with a `schema` on the fake agent.
 - Tests without an LLM: `test/fake-agent` is an ACP agent on the agent-side SDK, scenarios via env (`FAKE_SCENARIO=echo|permission|submit-valid|submit-invalid-then-valid|resume|hang|crash-on-prompt|notice`). They cover Worker, collector, permissions (all 8 harness_mode × permission_answers combinations, the `permissions` shorthand; elicit and auto through a fake MCP client with and without the capability), structured (both re-prompt branches), resume, timeouts, cancel, tree kill (fake-agent spawns a grandchild `sleep`; after close it's gone), depth, semaphore, agent-spec parsing.

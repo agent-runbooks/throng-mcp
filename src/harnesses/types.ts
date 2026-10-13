@@ -5,23 +5,6 @@ import type { Effort } from '../contract.ts';
 // Everything harness-specific (adapter command, env for the harness binary, knob names,
 // permission modes) lives here; run.ts and list_harnesses stay harness-agnostic.
 
-/** Verbatim shape of data/registry.json (ACP registry v1), only the fields throng reads. */
-export interface RegistrySnapshot {
-    version: string;
-    agents: RegistryAgent[];
-}
-
-export interface RegistryAgent {
-    id: string;
-    name: string;
-    version: string;
-    description?: string;
-    distribution?: {
-        npx?: { package: string; args?: string[]; env?: Record<string, string> };
-        binary?: Record<string, { archive: string; cmd: string; args?: string[] }>;
-    };
-}
-
 /** What gets spawned. `env` is merged over the server's environment by the Worker. */
 export interface HarnessLaunch {
     command: string;
@@ -29,8 +12,12 @@ export interface HarnessLaunch {
     env: Record<string, string>;
 }
 
-/** `reason` is what `list_harnesses.unavailable[].reason` and `harness_unavailable` carry, install hint included. */
-export type HarnessResolution = { available: true; launch: HarnessLaunch } | { available: false; reason: string };
+/**
+ * `reason` is what `list_harnesses.unavailable[].reason` and `harness_unavailable` carry, install hint included.
+ * `notInstalled`: a built-in harness without a command override whose adapter is not on PATH; list_harnesses omits it.
+ */
+export type HarnessResolution =
+    { available: true; launch: HarnessLaunch } | { available: false; reason: string; notInstalled?: true };
 
 /** A value for `session/set_config_option`: a select option's value id, or the value of a boolean option. */
 export type ConfigOptionValue = string | boolean;
@@ -51,10 +38,8 @@ export interface PermissionSetup {
 export interface HarnessDefinition {
     /** A built-in `HarnessId`, or the config key of a custom harness (DESIGN §8). */
     id: string;
-    /** Built-ins only: the registry entry their install hint comes from. */
-    registryId?: string;
     /** Adapter command from config or PATH; harness binary env when found (decision-3). Pure: no spawning. */
-    resolve(config: Config, registry: RegistrySnapshot, env?: NodeJS.ProcessEnv): HarnessResolution;
+    resolve(config: Config, env?: NodeJS.ProcessEnv): HarnessResolution;
     /** Our effort level → value of the `thought_level` option; `undefined` = not applicable, reported as a warning. */
     mapEffort(level: Effort, options: string[]): string | undefined;
     /** The native expression of `harness_mode`; the answers to permission requests are not the harness's business. */

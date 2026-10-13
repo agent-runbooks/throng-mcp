@@ -10,8 +10,9 @@ export function register(server: McpServer, env: ToolEnv): void {
         name,
         {
             description:
-                'Lists valid agent values for run_thronglet: available harnesses with their models and effort levels, ' +
-                'unavailable ones with the reason, and the server limits.',
+                'Lists valid agent values for run_thronglet: installed harnesses with their models and effort levels, ' +
+                'installed or configured ones that cannot run with the reason, and the server limits. Built-in harnesses ' +
+                'that are not installed are not listed.',
             inputSchema: {},
         },
         async () => {

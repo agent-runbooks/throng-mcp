@@ -286,8 +286,10 @@ describe('smoke script against the fake agent', () => {
     it('exits 2 with the install hint when the adapter is not on PATH', async () => {
         const { code, stdout, stderr } = await smoke(['codex/x']);
         expect(code, stdout + stderr).toBe(2);
-        expect(stdout).toMatch(/codex-acp not found on PATH; install: npm i -g @agentclientprotocol\/codex-acp$/m);
-        expect(stdout).toMatch(/harness codex is not available/);
+        expect(stdout).toMatch(
+            /^harness codex is not available: codex-acp not found on PATH; install: npm i -g @agentclientprotocol\/codex-acp$/m
+        );
+        expect(stdout).not.toMatch(/unavailable: codex/);
     });
 
     it('prints usage and exits 2 without an agent spec', async () => {

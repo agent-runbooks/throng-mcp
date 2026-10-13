@@ -168,15 +168,15 @@ describe('gemini harness (fake agent)', () => {
             efforts: [],
             version: '0.0.1',
         });
-        expect(out.unavailable.map(u => u.harness)).toStrictEqual(['claude', 'codex', 'opencode', 'cursor']);
+        expect(out.unavailable, 'built-in harnesses without adapters are not listed').toStrictEqual([]);
         expect(tagAlive(tag), 'probed fake agent still running').toBe(false);
     });
 
-    it('list_harnesses: gemini not on PATH → unavailable with the install hint', async () => {
+    it('gemini not on PATH: list_harnesses leaves gemini out, run_thronglet names the install command', async () => {
         const { loaded } = h.fakeClaude('echo');
         const out = await listHarnesses(loaded, { handshakeMs: 5000, depth: 0, env: { PATH: join(h.root, 'bin') } });
-        expect(out.unavailable.find(u => u.harness === 'gemini')?.reason).toBe(
-            'gemini not found on PATH; install: npm i -g @google/gemini-cli'
-        );
+        expect([...out.harnesses, ...out.unavailable].map(row => row.harness)).not.toContain('gemini');
+        const payload = failed(await runThronglet(input('gemini/x'), h.makeCtx(loaded)), 'harness_unavailable');
+        expect(payload.message).toBe('gemini not found on PATH; install: npm i -g @google/gemini-cli');
     });
 });

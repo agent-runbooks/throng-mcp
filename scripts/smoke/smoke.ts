@@ -407,7 +407,23 @@ try {
 
     const info = out.harnesses.find(h => h.harness === spec.harness);
     if (!info) {
-        console.log(`harness ${spec.harness} is not available (see its reason above)`);
+        if (out.unavailable.some(u => u.harness === spec.harness)) {
+            console.log(`harness ${spec.harness} is not available (see its reason above)`);
+        } else {
+            // Not listed means not installed: run_thronglet fails before spawn and names what to install. A cwd that
+            // does not exist keeps it from running anything.
+            const refused = await client.callTool({
+                name: 'run_thronglet',
+                arguments: {
+                    agent,
+                    prompt: 'x',
+                    cwd: join(tmpdir(), `throng-smoke-no-such-dir-${process.pid}`),
+                    description: 'smoke: why unavailable',
+                },
+            });
+            const { message } = JSON.parse(textOf(refused)) as Partial<RunFailure>;
+            console.log(`harness ${spec.harness} is not available: ${message}`);
+        }
         exitCode = 2;
     } else if (!offers(info.models, spec.model)) {
         console.log(
