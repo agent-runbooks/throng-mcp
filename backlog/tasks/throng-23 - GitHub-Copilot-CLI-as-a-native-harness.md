@@ -1,11 +1,11 @@
 ---
 id: THRONG-23
 title: GitHub Copilot CLI as a native harness
-status: Review
+status: Done
 assignee:
   - '@nodge'
 created_date: '2026-10-02 21:23'
-updated_date: '2026-10-12 22:21'
+updated_date: '2026-10-13 22:54'
 labels: []
 milestone: m-3
 dependencies:
@@ -133,6 +133,8 @@ Runbook run 20261012-throng-23 ended ready. Reviews: Opus 2 findings, Codex 1 (d
 Real-CLI evidence from the main session (Copilot 1.0.96, gh-only login): probeHarness on the copilot definition → ok, version 1.0.96, models [], efforts []; with copilot off PATH → notInstalled, 'copilot not found on PATH; install: npm i -g @github/copilot'. A full run through throng was not possible here: with a gh-only login Copilot exposes no model option, so every run is model_rejected (documented). Pending for the maintainer's smoke (docs/development.md, Copilot block) after 'copilot login': models in list_harnesses, auto, ask + deny, schema under ask + deny.
 
 Gates: pnpm typecheck, lint, test green (30 files, 417 tests). Changeset: .changeset/copilot-harness.md (minor). Branch is stacked on throng-28 (PR #21, still open): rebase onto main once it merges.
+
+2026-10-14: status set to Done by the maintainer (nodge) in the PR #22 review. ACs #1, #4 and #6 stay unchecked: their real-CLI smoke evidence is not recorded in this task.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
