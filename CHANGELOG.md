@@ -1,5 +1,13 @@
 # throng-mcp
 
+## 0.7.0
+
+### Minor Changes
+
+- [#22](https://github.com/agent-runbooks/throng-mcp/pull/22) [`3a3158f`](https://github.com/agent-runbooks/throng-mcp/commit/3a3158fe64cc48e405449b1a9e63098dba13baa4) Thanks [@Nodge](https://github.com/Nodge)! - GitHub Copilot CLI as a harness: `copilot/<model>` runs your installed Copilot CLI with its own login, so the models of your Copilot subscription are available. Install it with `npm i -g @github/copilot` and run `copilot login` once. After that `list_harnesses` shows its models. By default Copilot approves its own tool calls. With `harness_mode: ask` it asks before shell commands and file edits, and throng answers as `permission_answers` says. Follow-ups with `send_message` and `steer: true` work, and so does structured output with `schema`. If Copilot is signed in only through the GitHub CLI, it offers no models and every run fails with `model_rejected`, so sign in with `copilot login`. See [GitHub Copilot CLI](https://github.com/agent-runbooks/throng-mcp/blob/main/docs/harnesses.md#github-copilot-cli).
+
+- [#21](https://github.com/agent-runbooks/throng-mcp/pull/21) [`510286d`](https://github.com/agent-runbooks/throng-mcp/commit/510286d6faf44e03b0af4ba113318f6178087a73) Thanks [@Nodge](https://github.com/Nodge)! - `list_harnesses` now lists only the harnesses you have. A built-in harness whose adapter isn't installed no longer shows up under `unavailable` with an install hint, so the calling agent doesn't spend context on harnesses it can't run. `unavailable` is left for harnesses that are installed or configured but can't run: a config error, a configured `command` that isn't found, a failed probe. To find out what to install for a missing harness, call `run_thronglet` with it: it fails with `harness_unavailable` and the install command, as before. See [Check](https://github.com/agent-runbooks/throng-mcp/blob/main/README.md#check).
+
 ## 0.6.0
 
 ### Minor Changes
