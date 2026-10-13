@@ -344,7 +344,7 @@ describe('custom harness runs (fake agent)', () => {
         const loaded = yaml(['custom_harnesses:', '  kimi: { command: kimi }', '  qwen.code: { command: qwen }']);
         const payload = failed(await runThronglet(input('glm/x:high'), h.makeCtx(loaded)), 'harness_unavailable');
         expect(payload.message).toBe(
-            'Unknown harness "glm" in agent spec "glm/x:high"; valid harnesses: claude, codex, opencode, gemini, cursor, kimi, qwen.code'
+            'Unknown harness "glm" in agent spec "glm/x:high"; valid harnesses: claude, codex, opencode, gemini, cursor, copilot, kimi, qwen.code'
         );
     });
 
@@ -378,7 +378,7 @@ describe('custom harness runs (fake agent)', () => {
             'harness_unavailable'
         );
         expect(payload.message).toBe(
-            `Unknown harness "kimi" in session ${first.session_id}; valid harnesses: claude, codex, opencode, gemini, cursor`
+            `Unknown harness "kimi" in session ${first.session_id}; valid harnesses: claude, codex, opencode, gemini, cursor, copilot`
         );
         expect(payload.session_id).toBe(undefined);
         expect(tagAlive(tag)).toBe(false);
@@ -448,7 +448,14 @@ describe('list_harnesses with custom harnesses', () => {
         writeFileSync(path, 'custom_harnesses:\n  kimi: {}\n');
         const loaded = loadConfig({ THRONG_MCP_CONFIG: path });
         const out = await listHarnesses(loaded, { handshakeMs: 5000, depth: 0, env: { PATH: bin } });
-        expect(out.unavailable.map(u => u.harness)).toStrictEqual(['claude', 'codex', 'opencode', 'gemini', 'cursor']);
+        expect(out.unavailable.map(u => u.harness)).toStrictEqual([
+            'claude',
+            'codex',
+            'opencode',
+            'gemini',
+            'cursor',
+            'copilot',
+        ]);
         expect(out.unavailable[0]?.reason).toMatch(
             /^config error: .*custom_harnesses\.kimi\.command: Invalid input: expected string, received undefined$/
         );

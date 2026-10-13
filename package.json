@@ -67,7 +67,9 @@
         "smoke:gemini": "node scripts/smoke/smoke.ts gemini/auto",
         "smoke:gemini-schema": "node scripts/smoke/smoke.ts gemini/auto --schema",
         "smoke:cursor": "node scripts/smoke/smoke.ts cursor/default",
-        "smoke:cursor-schema": "node scripts/smoke/smoke.ts cursor/default --schema"
+        "smoke:cursor-schema": "node scripts/smoke/smoke.ts cursor/default --schema",
+        "smoke:copilot": "node scripts/smoke/smoke.ts copilot/auto",
+        "smoke:copilot-schema": "node scripts/smoke/smoke.ts copilot/auto --schema"
     },
     "devDependencies": {
         "@agentclientprotocol/sdk": "^1.5.0",

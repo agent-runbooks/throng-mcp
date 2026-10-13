@@ -10,7 +10,7 @@ An MCP server that lets your agent hand work to another one. Any MCP client can 
 - **Background work.** Several agents run at once while you carry on.
 - **Answers by schema.** Pass a JSON Schema and the result comes back as data that fits it, not prose to parse: a list of findings, a verdict, a plan, ready to feed into the next step.
 
-Supported harnesses: Claude Code, Codex, OpenCode (and every model it can reach), Gemini CLI, Cursor CLI. Setup for each is under [Install](#2-the-agents-to-run).
+Supported harnesses: Claude Code, Codex, OpenCode (and every model it can reach), Gemini CLI, Cursor CLI, GitHub Copilot CLI. Setup for each is under [Install](#2-the-agents-to-run).
 
 Any other ACP agent can be described in the config as a custom harness: its command, and the mode or options that make it auto-approve or ask. throng installs nothing for it and guesses nothing; see [Custom harnesses](docs/configuration.md#custom-harnesses).
 
@@ -130,6 +130,20 @@ throng finds `cursor-agent` on PATH and authenticates with the login `agent logi
 
 </details>
 
+<details>
+<summary><strong>GitHub Copilot CLI</strong></summary>
+
+Copilot CLI speaks ACP itself (`copilot --acp`), so there is no adapter.
+
+```bash
+npm i -g @github/copilot
+copilot login
+```
+
+throng finds `copilot` on PATH; the nested agent uses the login `copilot login` saved, or the GitHub CLI's. With a login from the GitHub CLI only, Copilot offers no model choice and every run fails with `model_rejected`; run `copilot login`. Its limits under throng: [docs/harnesses.md](docs/harnesses.md#github-copilot-cli).
+
+</details>
+
 ### 3. The MCP client
 
 The client is the session that calls throng. It may be the same program as one of the agents above, or a different one. The server speaks stdio and the command is `npx -y throng-mcp`, or `throng-mcp` after a global install.
@@ -201,7 +215,7 @@ Agents pick skills up at session start, so open a new session after installing.
 
 ### Check
 
-In a new session, ask the agent to call `list_harnesses`. It starts each installed adapter without a prompt (seconds, no tokens) and lists the installed harnesses with their models and effort levels; `unavailable` holds the ones that are configured or installed but broken, with the reason. A built-in harness you haven't installed is not listed, and `run_thronglet` on it says what to install. If a run then fails during the handshake, the usual cause is auth: `claude auth status`, `codex login`, `opencode auth login`, `gemini` (set the API key once), `agent login` (Cursor). More in [troubleshooting](docs/configuration.md#troubleshooting).
+In a new session, ask the agent to call `list_harnesses`. It starts each installed adapter without a prompt (seconds, no tokens) and lists the installed harnesses with their models and effort levels; `unavailable` holds the ones that are configured or installed but broken, with the reason. A built-in harness you haven't installed is not listed, and `run_thronglet` on it says what to install. If a run then fails during the handshake, the usual cause is auth: `claude auth status`, `codex login`, `opencode auth login`, `gemini` (set the API key once), `agent login` (Cursor), `copilot login` (Copilot). More in [troubleshooting](docs/configuration.md#troubleshooting).
 
 Before the first run, two things to know. The agent edits the directory you name, with your user's rights; throng adds no isolation and rolls nothing back. Give it only trees you would let an agent edit unattended, and give parallel writers a worktree each.
 
@@ -215,6 +229,7 @@ codex/gpt-6-sol:xhigh
 opencode/openrouter/z-ai/glm-5.3-flash
 gemini/gemini-2.5-pro
 cursor/gpt-5.4-nano
+copilot/auto
 ```
 
 The model is one of the harness's own values; `list_harnesses` has the current list. Effort is `low | medium | high | xhigh | max`; omitted means the harness default.
@@ -254,7 +269,7 @@ harness_mode: auto        # auto | ask
 permission_answers: deny  # auto | allow | deny | elicit
 ```
 
-- `harness_mode` is the mode the harness runs in: `auto` (the default) is its own auto-approve mode (Claude `auto`, Codex `agent`, OpenCode as configured, Gemini `yolo`, Cursor `--force`), `ask` its asking mode.
+- `harness_mode` is the mode the harness runs in: `auto` (the default) is its own auto-approve mode (Claude `auto`, Codex `agent`, OpenCode as configured, Gemini `yolo`, Cursor `--force`, Copilot `allow_all`), `ask` its asking mode.
 - `permission_answers` is how throng answers what the harness still asks: `deny` (the default) refuses, `allow` allows once, `elicit` shows you a dialog in the MCP client (needs elicitation support; Claude Code has it), `auto` shows the dialog when the client can and refuses otherwise.
 - `harness_mode: auto` with `permission_answers: allow` is effectively bypass.
 - Both settings govern what a harness asks about. Some harnesses act without asking: Cursor CLI applies file edits on its own in either mode ([docs/harnesses.md](docs/harnesses.md#cursor-cli)).

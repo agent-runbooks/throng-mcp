@@ -60,6 +60,7 @@ const summary = (calls: FakeCall[]) =>
         if (c.event === 'start') return `start ${c.argv.slice(1).join(' ')}`.trim();
         if (c.event === 'authenticate') return `authenticate ${c.methodId}`;
         if (c.event === 'load') return `load ${c.sessionId}`;
+        if (c.event === 'new') return 'new';
         const r = c.resumed ? '^' : '';
         if (c.event === 'set_mode') return `${r}set_mode ${c.modeId}`;
         if (c.event === 'set_model') return `${r}set_model ${c.modelId}`;

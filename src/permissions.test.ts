@@ -172,6 +172,24 @@ describe('permissions', () => {
         expect(isThrongResultCall({ toolCallId: 't' })).toBe(false);
     });
 
+    it('isThrongResultCall: the same rule on the title an earlier tool_call gave the call (Copilot)', () => {
+        const bare = { toolCallId: 't', title: 'submit_result' };
+        expect(isThrongResultCall(bare)).toBe(false);
+        expect(isThrongResultCall(bare, 'throng_result-submit_result')).toBe(true);
+        expect(isThrongResultCall({ toolCallId: 't' }, 'throng_result-submit_result')).toBe(true);
+        expect(isThrongResultCall(bare, 'other-submit_result')).toBe(false);
+        expect(isThrongResultCall(submitCall, 'run ls')).toBe(true);
+    });
+
+    it('the bridge allows our submit_result once by its known title; without it the answers decide', async () => {
+        const bridge = createPermissionBridge(() => undefined, deny);
+        const bare = request(onceOptions, { toolCallId: 't3', title: 'submit_result', kind: 'other' });
+        expect(await bridge.answer(bare, 'throng_result-submit_result')).toStrictEqual({
+            outcome: { outcome: 'selected', optionId: 'ok' },
+        });
+        expect(await bridge.answer(bare)).toStrictEqual({ outcome: { outcome: 'selected', optionId: 'no' } });
+    });
+
     it('our submit_result is allowed once before the answers; other tools still rejected', async () => {
         const decisions: PermissionDecision[] = [];
         const bridge = createPermissionBridge(d => decisions.push(d), deny);

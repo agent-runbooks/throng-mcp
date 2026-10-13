@@ -24,7 +24,7 @@ harnesses:
   #   args: [acp]                              # replaces the default args
   #   env: { X: "1" }
   # gemini:
-  #   permissions: deny_all                    # the shorthand per harness; ids: claude, codex, opencode, gemini, cursor
+  #   permissions: deny_all                    # the shorthand per harness; ids: claude, codex, opencode, gemini, cursor, copilot
 
 # Other ACP agents, all optional (see Custom harnesses below).
 custom_harnesses:
@@ -98,8 +98,8 @@ Two settings, from the config only, never from a tool parameter, so the calling 
 
 `harness_mode` is the mode throng puts the harness in:
 
-- `auto` (default): the harness's own auto-approve mode (Claude `auto`, Codex `agent`, OpenCode as configured, Gemini `yolo`, Cursor `--force`). It decides most actions itself and asks about the rest.
-- `ask`: its asking mode (Claude `default`, Codex `read-only`, OpenCode with every permission set to `ask`, Gemini `default`, Cursor without `--force`). Edits, shell and MCP tools are asked about; Cursor asks about shell, MCP tools and web search, never about edits.
+- `auto` (default): the harness's own auto-approve mode (Claude `auto`, Codex `agent`, OpenCode as configured, Gemini `yolo`, Cursor `--force`, Copilot `allow_all`). It decides most actions itself and asks about the rest.
+- `ask`: its asking mode (Claude `default`, Codex `read-only`, OpenCode with every permission set to `ask`, Gemini `default`, Cursor without `--force`, Copilot without `allow_all` and with `COPILOT_ALLOW_ALL=false`). Edits, shell and MCP tools are asked about; Cursor asks about shell, MCP tools and web search, never about edits.
 
 `permission_answers` is how throng answers what the harness asks:
 
@@ -140,7 +140,7 @@ Cursor CLI applies file edits without asking under both harness modes. throng an
 
 ## Auth
 
-The nested harness uses whatever login its CLI has. If `claude auth status` says not logged in, put `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`) into `harnesses.claude.env` as in the config above. Codex, OpenCode, Gemini CLI and Cursor CLI use their own logins: `codex login`, `opencode auth login`, a first run of `gemini` to set its API key, and `agent login` (Cursor; throng then calls its `authenticate` itself). OpenCode custom providers live in your `~/.config/opencode/opencode.json`; throng doesn't touch it.
+The nested harness uses whatever login its CLI has. If `claude auth status` says not logged in, put `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`) into `harnesses.claude.env` as in the config above. Codex, OpenCode, Gemini CLI, Cursor CLI and Copilot CLI use their own logins: `codex login`, `opencode auth login`, a first run of `gemini` to set its API key, `agent login` (Cursor; throng then calls its `authenticate` itself) and `copilot login` (Copilot also takes the GitHub CLI's login, but then offers no model choice). OpenCode custom providers live in your `~/.config/opencode/opencode.json`; throng doesn't touch it.
 
 ## Effort
 
@@ -153,8 +153,8 @@ The `:<effort>` suffix of the agent spec is taken as effort only when it is `low
 | `harness_unavailable`, or a built-in harness missing from `list_harnesses` | the adapter isn't on PATH (`list_harnesses` lists only installed harnesses), and the `harness_unavailable` message carries the install command; or the config is broken (message starts with `config error:`): fix the yaml, throng won't run on defaults |
 | `harness_unavailable` on a custom harness | `<command> (custom_harnesses.<id>.command) not found on PATH`: install the agent or fix `command` (a name on PATH or a path). `Unknown harness "<id>"`: the id is neither built in nor in the config; the message lists the valid ones. A session whose custom harness has since left the config gets the same error from `send_message`, unless its id is a built-in one: then the built-in harness gets the message |
 | `elicitation_unsupported` | `permission_answers: elicit` (or `permissions: elicit`), globally or per harness, but the MCP client has no elicitation support; the message names the key. Use a client that has it, or set the key to another value (`permission_answers: auto` asks when it can and rejects otherwise) |
-| `model_rejected` | the model isn't one of the harness's values. Call `list_harnesses` for the current list; they are the harness's own option values and change with harness versions. A name before the `[` of a value (`cursor/gpt-5.4-nano` for `gpt-5.4-nano[reasoning=medium]`) works only when one value has that name |
-| `handshake_timeout`, `spawn_failed`, `handshake_failed` | the message includes the adapter's stderr. Usual cause is auth: check `claude auth status` (or set `CLAUDE_CODE_OAUTH_TOKEN` in config), `codex login`, `opencode auth login`, `gemini` (set the API key once), `agent login` (Cursor: "Authentication required. Please run 'agent login' first"). Slow first start: raise `limits.handshake_s` |
+| `model_rejected` | the model isn't one of the harness's values. Call `list_harnesses` for the current list; they are the harness's own option values and change with harness versions. A name before the `[` of a value (`cursor/gpt-5.4-nano` for `gpt-5.4-nano[reasoning=medium]`) works only when one value has that name. Copilot's `harness exposes no model option`: its login comes from the GitHub CLI only; run `copilot login` |
+| `handshake_timeout`, `spawn_failed`, `handshake_failed` | the message includes the adapter's stderr. Usual cause is auth: check `claude auth status` (or set `CLAUDE_CODE_OAUTH_TOKEN` in config), `codex login`, `opencode auth login`, `gemini` (set the API key once), `agent login` (Cursor: "Authentication required. Please run 'agent login' first"), `copilot login`. Slow first start: raise `limits.handshake_s` |
 | `empty_result` | the agent ended its turn without saying anything; the harness's own session log shows what it did |
 | `timeout` | raise `timeout_s` for the call or `limits.timeout_s`. The payload keeps `session_id` and any partial `text` |
 | anything else | the server log (stderr of the server; the MCP client decides where it ends up), then the harness's session log by `session_id`. throng keeps no transcripts |

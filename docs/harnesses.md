@@ -4,18 +4,18 @@ How each built-in harness behaves under throng: what you will notice when you us
 
 ## Overview
 
-| | claude | codex | opencode | gemini | cursor |
-|---|---|---|---|---|---|
-| adapter on PATH | `claude-agent-acp` | `codex-acp` | `opencode acp` | `gemini --acp` | `cursor-agent acp` |
-| install hint | `npm i -g @agentclientprotocol/claude-agent-acp` | `npm i -g @agentclientprotocol/codex-acp` | opencode install docs | `npm i -g @google/gemini-cli` | `curl https://cursor.com/install -fsS \| bash` |
-| harness on PATH | `claude` → `CLAUDE_CODE_EXECUTABLE` | `codex` → `CODEX_PATH` | same binary | same binary | same binary |
-| auth | — | — | — | — | `authenticate cursor_login` after `initialize` |
-| model | option category `model` | option category `model` | option category `model` | `models` list + `session/set_model` | option category `model`; a name resolves to its bracketed value |
-| effort | option `thought_level`; exact | `thought_level`; `max → xhigh` | `thought_level` if present; otherwise warning | none; always a warning | none; always a warning |
-| `harness_mode: auto` | mode `auto` | mode `agent` | opencode.json defaults | mode `yolo` | launch flag `--force` |
-| `harness_mode: ask` | mode `default` | mode `read-only` (asks the client) | `OPENCODE_CONFIG_CONTENT={"permission":"ask"}` | mode `default` | no flag |
-| `send_message` | `session/resume` | `session/resume` | `session/resume` | none: one turn | `session/load` |
-| usage | tokens and cost | tokens | tokens and cost | none | none |
+| | claude | codex | opencode | gemini | cursor | copilot |
+|---|---|---|---|---|---|---|
+| adapter on PATH | `claude-agent-acp` | `codex-acp` | `opencode acp` | `gemini --acp` | `cursor-agent acp` | `copilot --acp` |
+| install hint | `npm i -g @agentclientprotocol/claude-agent-acp` | `npm i -g @agentclientprotocol/codex-acp` | opencode install docs | `npm i -g @google/gemini-cli` | `curl https://cursor.com/install -fsS \| bash` | `npm i -g @github/copilot` |
+| harness on PATH | `claude` → `CLAUDE_CODE_EXECUTABLE` | `codex` → `CODEX_PATH` | same binary | same binary | same binary | same binary |
+| auth | — | — | — | — | `authenticate cursor_login` after `initialize` | its own `copilot login` or the GitHub CLI's login; no `authenticate` |
+| model | option category `model` | option category `model` | option category `model` | `models` list + `session/set_model` | option category `model`; a name resolves to its bracketed value | option category `model` when offered; none with a login from the GitHub CLI only |
+| effort | option `thought_level`; exact | `thought_level`; `max → xhigh` | `thought_level` if present; otherwise warning | none; always a warning | none; always a warning | `thought_level` if present; otherwise warning |
+| `harness_mode: auto` | mode `auto` | mode `agent` | opencode.json defaults | mode `yolo` | launch flag `--force` | option `allow_all=on` |
+| `harness_mode: ask` | mode `default` | mode `read-only` (asks the client) | `OPENCODE_CONFIG_CONTENT={"permission":"ask"}` | mode `default` | no flag | `allow_all` off + `COPILOT_ALLOW_ALL=false` |
+| `send_message` | `session/resume` | `session/resume` | `session/resume` | none: one turn | `session/load` | `session/load` |
+| usage | tokens and cost | tokens | tokens and cost | none | none | tokens |
 
 ## Claude Code
 
@@ -91,3 +91,28 @@ Over ACP:
 - MCP stdio servers from `session/new` work; the permission title of throng's submit tool is `throng_result-submit_result: submit_result`. `cursor/create_plan` arrives only in plan mode, which throng never sets.
 - After its stdin closes the process exits in about 1.8 s when idle and in under 0.5 s right after a turn. In 2 of 8 smoke runs adapter processes were still alive 7 s after the client closed, for a reason not found; throng's SIGTERM and SIGKILL (5 s apart) end them either way.
 - Also written outside the sessions directory: `~/.cursor/projects/`, `~/.cursor/plans/` (plan mode), `~/Library/Caches/cursor-compile-cache/`.
+
+## GitHub Copilot CLI
+
+Copilot CLI 1.0.96 (`copilot --acp`), checked 2026-10-12 with a raw ACP client and a login from the GitHub CLI only (THRONG-23).
+
+What you notice:
+
+- With a login that comes only from the GitHub CLI, Copilot offers no model choice over ACP: every copilot run fails with `model_rejected` ("harness exposes no model option") and `list_harnesses` shows `models: []`. Run `copilot login` and try again; that case was not checked yet.
+- `harness_mode: auto` turns on Copilot's `allow_all`: tools, paths and URLs run without asking. Under `ask` it stays off, and shell commands and file edits go to `permission_answers`.
+- `send_message` works: each turn picks the session up through `session/load`. A session whose first turn never ran (cancelled or steered before it started) can't be loaded, and the next `send_message` fails with `session_not_found`.
+- Usage has tokens, no cost.
+- Copilot loads your own Copilot config from `~/.copilot`: its skills and MCP servers come along into the run.
+
+Over ACP:
+
+- `initialize`: `loadSession: true`, `sessionCapabilities` `close` and `list`, no `resume`; `mcpCapabilities` `http` and `sse`. `authMethods` lists `copilot-login` (a terminal `copilot login`), but no `authenticate` call is needed: the CLI uses its own login or the GitHub CLI's.
+- `session/new` returns `modes` with URL ids (`https://agentclientprotocol.com/protocol/session-modes#agent` current, `…#plan`, `…#autopilot`) and two config options: `mode` (category `mode`, the same values) and `allow_all` (category `permissions`, `on | off`, default `off`). With a GitHub-CLI-only login there is no `model` option and no `models` field. The CLI flag `--reasoning-effort` takes `none | minimal | low | medium | high | xhigh | max`.
+- `session/set_config_option` with an unknown `configId`, and `session/set_model` with an unknown model, both answer success without doing anything.
+- `allow_all=on` runs a shell command without `request_permission`. With it off, a shell command (`kind: 'execute'`, the title written by the model, `rawInput.command`) and a file edit (`kind: 'edit'`, title `Create file`, `rawInput.fileName` and `diff`) ask with options `allow_once | allow_always | reject_once`, the option ids equal to the kinds; `reject_once` fails the tool call and nothing is written. The launch flags `--allow-all` / `--yolo` start the option at `on`.
+- `COPILOT_ALLOW_ALL=true` in the environment approves everything silently even with `allow_all` off (the option still reports `off`); `COPILOT_ALLOW_ALL=false` restores asking. throng sets `false` under `ask`.
+- MCP: Copilot refuses every stdio server a client passes in `session/new` (its log in `~/.copilot/logs/`: "Rejecting non-http/sse MCP server … from client"). The launch flag `--additional-mcp-config <json>` works, so throng passes its `throng_result` server there (`{"mcpServers": {"throng_result": {"type": "local", "command", "args", "env", "tools": ["*"]}}}`) and sends no servers in `session/new` or `session/load` (`mcpServerArgs`, [DESIGN §4.1](DESIGN.md#41-harnesses-and-discovery)).
+- throng's submit tool has two titles: the `tool_call` update says `throng_result-submit_result`, the permission request for the same `toolCallId` only `submit_result` (`kind: 'other'`, `rawInput: {result: …}`). throng recognises it by the earlier title and answers `allow_once` ([DESIGN §5](DESIGN.md#5-permissions)).
+- `session/load {sessionId, cwd, mcpServers}` in a fresh process replays the history (`user_message_chunk`, `tool_call`, `tool_call_update`) before it answers; the next prompt remembers the earlier turns. A session that never ran a turn answers `-32002` "Resource not found: Session <id> not found", the same as an unknown id.
+- Usage: `PromptResponse.usage` (`inputTokens`, `outputTokens`, …) and `usage_update {used, size}` without `cost`. No agent message arrives outside a turn.
+- After its stdin closes the process exits in about 0.9 s. The npm bin is a node wrapper that runs the native `…/copilot --acp`.

@@ -320,7 +320,7 @@ describe('runThronglet', () => {
         const { loaded } = fakeClaude('echo');
         const nope = failed(await runThronglet(input('nope/pro'), makeCtx(loaded)), 'harness_unavailable');
         expect(nope.message).toBe(
-            'Unknown harness "nope" in agent spec "nope/pro"; valid harnesses: claude, codex, opencode, gemini, cursor'
+            'Unknown harness "nope" in agent spec "nope/pro"; valid harnesses: claude, codex, opencode, gemini, cursor, copilot'
         );
         const upper = failed(await runThronglet(input('Claude/opus-5-5'), makeCtx(loaded)), 'harness_unavailable');
         expect(upper.message).toContain('"Claude"');

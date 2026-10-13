@@ -1,4 +1,4 @@
-import type { McpServer, PromptResponse, SessionNotification } from '@agentclientprotocol/sdk';
+import type { McpServerStdio, PromptResponse, SessionNotification } from '@agentclientprotocol/sdk';
 import { statSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -129,6 +129,11 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
     let structuredDir: string | undefined;
     /** Text of the most recent turn that had any; the collector only keeps the current turn. */
     let lastText = '';
+    /**
+     * Title per `toolCallId` from tool_call updates, for recognising our own submit_result in a request.
+     * Once a title marks the call as ours, later titles don't replace it.
+     */
+    const toolTitles = new Map<string, string>();
 
     const warn = (text: string) => {
         if (!warnings.includes(text)) warnings.push(text);
@@ -145,6 +150,11 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
     const onUpdate = (notification: SessionNotification) => {
         collector.handle(notification);
         const { update } = notification;
+        if ((update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') && update.title) {
+            const known = toolTitles.get(update.toolCallId);
+            if (!isThrongResultCall({ toolCallId: update.toolCallId }, known))
+                toolTitles.set(update.toolCallId, update.title);
+        }
         if (update.sessionUpdate === 'tool_call') ctx.progress.tool(update.title);
         else if (update.sessionUpdate === 'agent_message_chunk') ctx.progress.text(collector.text.length);
         else if (
@@ -249,7 +259,7 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
         lifecycle.arm(call.timeout_s ?? config.limits.timeout_s);
         ctx.progress.started();
 
-        const mcpServers: McpServer[] = [];
+        const mcpServers: McpServerStdio[] = [];
         let outPath: string | undefined;
         if (call.schema) {
             structuredDir = await mkdtemp(join(tmpdir(), 'throng-'));
@@ -275,13 +285,16 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
         const setup = def.permissionSetup(mode);
         if (setup.warning) warn(setup.warning);
         const { launch } = resolution;
+        const serverArgs = def.mcpServerArgs && mcpServers.length ? def.mcpServerArgs(mcpServers) : [];
+        const sessionServers = def.mcpServerArgs ? [] : mcpServers;
         const hooks: WorkerHooks = {
             onUpdate,
             onPermission: request => {
-                if (toHuman && !isThrongResultCall(request.toolCall)) {
+                const knownTitle = toolTitles.get(request.toolCall.toolCallId);
+                if (toHuman && !isThrongResultCall(request.toolCall, knownTitle)) {
                     ctx.progress.tool(`permission: ${request.toolCall.title ?? request.toolCall.toolCallId}`);
                 }
-                return permissions.answer(request);
+                return permissions.answer(request, knownTitle);
             },
             onWarning: warn,
         };
@@ -289,7 +302,7 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
             startWorker(
                 {
                     command: launch.command,
-                    args: [...launch.args, ...(setup.args ?? [])],
+                    args: [...launch.args, ...(setup.args ?? []), ...serverArgs],
                     env: { ...launch.env, ...setup.env },
                     cwd: target.cwd,
                     depth: ctx.depth,
@@ -299,14 +312,14 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
                     ? {
                           kind: 'new',
                           cwd: target.cwd,
-                          mcpServers,
+                          mcpServers: sessionServers,
                           ...(setup.newSessionMeta ? { meta: setup.newSessionMeta } : {}),
                       }
                     : {
                           kind: 'resume',
                           sessionId: request.sessionId,
                           cwd: target.cwd,
-                          mcpServers,
+                          mcpServers: sessionServers,
                           ...(def.continueViaLoad ? { allowLoad: true } : {}),
                       },
                 hooks,
