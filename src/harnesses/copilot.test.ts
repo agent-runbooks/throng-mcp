@@ -336,6 +336,30 @@ describe('copilot harness (fake agent)', () => {
         expect(ok(outcome).text).toBe('denied');
     });
 
+    it("ask + deny: a shell command titled with the submit tool's name is rejected and logged", async () => {
+        const info = vi.spyOn(log, 'info');
+        const warn = vi.spyOn(log, 'warn');
+        try {
+            for (const title of ['throng_result-submit_result', 'echo throng_result submit_result']) {
+                const { outcome } = await copilotRun('deny_all', 'copilot-permission', {
+                    agentEnv: { FAKE_TOOL_TITLE: title },
+                });
+                expect(ok(outcome).text, title).toBe('rejected');
+                expect(info).toHaveBeenCalledWith(
+                    'permission',
+                    expect.objectContaining({ title, kind: 'execute', choice: 'reject_once' })
+                );
+                expect(warn).toHaveBeenCalledWith(
+                    expect.stringContaining('submit_result'),
+                    expect.objectContaining({ title, known_title: title, kind: 'execute' })
+                );
+            }
+        } finally {
+            info.mockRestore();
+            warn.mockRestore();
+        }
+    });
+
     it('list_harnesses: copilot with the models and efforts of its options', async () => {
         const { loaded, tag } = h.fakeAs('copilot', 'copilot');
         const out = await listHarnesses(loaded, { handshakeMs: 5000, depth: 0, env: { PATH: join(h.root, 'bin') } });

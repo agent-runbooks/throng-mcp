@@ -26,6 +26,7 @@ import {
     type Elicitation,
     elicits,
     isThrongResultCall,
+    isThrongResultTitle,
     type PermissionBridge,
     resolvePermissions,
 } from './permissions.ts';
@@ -130,8 +131,8 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
     /** Text of the most recent turn that had any; the collector only keeps the current turn. */
     let lastText = '';
     /**
-     * Title per `toolCallId` from tool_call updates, for recognising our own submit_result in a request.
-     * Once a title marks the call as ours, later titles don't replace it.
+     * Title per `toolCallId` from tool_call updates, for recognising our own submit_result in a request
+     * (`isThrongResultCall`). Once a title is an exact submit_result form, later titles don't replace it.
      */
     const toolTitles = new Map<string, string>();
 
@@ -152,8 +153,7 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
         const { update } = notification;
         if ((update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') && update.title) {
             const known = toolTitles.get(update.toolCallId);
-            if (!isThrongResultCall({ toolCallId: update.toolCallId }, known))
-                toolTitles.set(update.toolCallId, update.title);
+            if (!isThrongResultTitle(known)) toolTitles.set(update.toolCallId, update.title);
         }
         if (update.sessionUpdate === 'tool_call') ctx.progress.tool(update.title);
         else if (update.sessionUpdate === 'agent_message_chunk') ctx.progress.text(collector.text.length);

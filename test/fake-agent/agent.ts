@@ -458,15 +458,19 @@ async function runTurn(sessionId: string, text: string, client: AgentContext, si
                 await submit(session, VALID_SUBMIT);
                 return;
             }
-            // Like a harness that asks before an MCP tool: submits only if throng allows it.
+            // Like codex-acp 2.1.1 asking before an MCP tool: only the tool_call carries the title. Submits only if
+            // throng allows it.
+            await send({
+                sessionUpdate: 'tool_call',
+                toolCallId: 't3',
+                title: 'mcp.throng_result.submit_result',
+                kind: 'execute',
+                status: 'pending',
+                rawInput: { server: 'throng_result', tool: 'submit_result', arguments: { result: VALID_SUBMIT } },
+            });
             const answer = await client.request(acp.methods.client.session.requestPermission, {
                 sessionId,
-                toolCall: {
-                    toolCallId: 't3',
-                    title: 'mcp.throng_result.submit_result',
-                    kind: 'other',
-                    status: 'pending',
-                },
+                toolCall: { toolCallId: 't3', kind: 'execute', status: 'pending' },
                 options: [
                     { optionId: 'approve', name: 'Allow', kind: 'allow_once' },
                     { optionId: 'decline', name: 'Reject', kind: 'reject_once' },
@@ -512,10 +516,21 @@ async function runTurn(sessionId: string, text: string, client: AgentContext, si
                         { optionId: 'always', name: 'Always', kind: 'allow_always' },
                         { optionId: 'no', name: 'Reject', kind: 'reject_once' },
                     ];
+            const shellTitle = process.env.FAKE_TOOL_TITLE;
+            if (copilot && shellTitle) {
+                await send({
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 't2',
+                    title: shellTitle,
+                    kind: 'execute',
+                    status: 'pending',
+                    rawInput: { command: 'ls' },
+                });
+            }
             const toolCall: ToolCallUpdate = copilot
                 ? {
                       toolCallId: 't2',
-                      title: 'List files',
+                      title: shellTitle ?? 'List files',
                       kind: 'execute',
                       status: 'pending',
                       rawInput: { command: 'ls' },

@@ -55,6 +55,9 @@ export type FakeScenario =
 // fails with this text (-32000).
 // steer: every turn appends its prompt to the session's notes; the session's first turn then hangs until session/cancel,
 // every later one replies `you said: <notes joined ' | '>`.
+// submit-ask: shaped like codex-acp 2.1.1, a `tool_call` titled `mcp.throng_result.submit_result` (kind `execute`,
+// rawInput `{server, tool, arguments}`), then a permission request for the same toolCallId with kind `execute`, no
+// title and no rawInput; submits only when allowed, else replies `denied`.
 // gemini, gemini-<scenario>: shaped like Gemini CLI 0.61 in ACP mode (docs/harnesses.md), with the turn of echo or
 // <scenario>. No configOptions (FAKE_CONFIG_OPTIONS ignored); models in the session response's `models` field
 // (gemini-2.5-pro current, gemini-2.5-flash), changed by session/set_model, which accepts any string; modes default,
@@ -75,9 +78,11 @@ export type FakeScenario =
 // Copilot refuses them; the session's servers come from the launch arg `--additional-mcp-config <json>` instead
 // (`{mcpServers: {<name>: {type: 'local', command, args, env: {NAME: value}}}}`). A permission request is skipped (the
 // tool runs) when allow_all is on or COPILOT_ALLOW_ALL=true. copilot-permission asks before a shell command, option ids
-// equal to their kinds; copilot-submit-ask sends a `tool_call` titled FAKE_TOOL_TITLE (default
-// `throng_result-submit_result`) and, when FAKE_TOOL_RETITLE is set, a `tool_call_update` retitling it to that value,
-// then asks for the same toolCallId titled `submit_result`, and submits only when allowed, else replies `denied`.
+// equal to their kinds, the request titled `List files`; with FAKE_TOOL_TITLE set, a `tool_call` for the command and
+// the request are both titled that (the model writes Copilot's shell titles). copilot-submit-ask sends a `tool_call`
+// titled FAKE_TOOL_TITLE (default `throng_result-submit_result`) and, when FAKE_TOOL_RETITLE is set, a
+// `tool_call_update` retitling it to that value, then asks for the same toolCallId titled `submit_result`, and submits
+// only when allowed, else replies `denied`.
 
 /**
  * One line of FAKE_CALL_LOG. `resumed`: the session came from session/resume or session/load. copilot-*: `allowAll` is

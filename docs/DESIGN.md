@@ -374,7 +374,7 @@ The defaults, auto + deny, trust the harness's own auto mode and nothing more: w
 
 At one place, `permissions` next to `harness_mode` or `permission_answers` is a config error (`harnesses.codex: permissions is a shorthand for harness_mode and permission_answers; set either permissions or those two`). The shorthand expands before the per-key resolution, so a place with `permissions` sets both keys there.
 
-A `request_permission` for throng's own `submit_result` (§6) is answered `allow_once` under every setting, before the answers apply. It is recognised by its title, or by the title an earlier `tool_call` / `tool_call_update` gave the same `toolCallId` (Copilot titles the request only `submit_result`).
+A `request_permission` for throng's own `submit_result` (§6) is answered `allow_once` under every setting, before the answers apply. It is recognised by exact titles, one form per harness ([harnesses.md](harnesses.md)): the request's own title with a kind other than `execute`, or, for a request without a title or titled only `submit_result` (Codex, Copilot), the title an earlier `tool_call` / `tool_call_update` gave the same `toolCallId`; its `rawInput` must be absent or hold only `result`. Anything else goes to the answers, a model-written title that names the tool included; one that names `submit_result` is also logged as a warning.
 
 throng answers only the requests a harness sends. What a harness does without asking is not gated: Cursor applies file edits on its own under both harness modes ([harnesses.md](harnesses.md#cursor-cli)), so `ask` + `deny` still lets it edit `cwd`.
 

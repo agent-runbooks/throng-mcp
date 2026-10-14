@@ -1,6 +1,7 @@
 import type { RequestPermissionRequest } from '@agentclientprotocol/sdk';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CONFIG, type Config } from './config.ts';
+import { log } from './log.ts';
 import type { ElicitRequestFormParams, ElicitResult } from '@modelcontextprotocol/sdk/types.js';
 import {
     createPermissionBridge,
@@ -8,6 +9,7 @@ import {
     type Elicitation,
     elicits,
     isThrongResultCall,
+    isThrongResultTitle,
     type PermissionDecision,
     resolvePermissions,
 } from './permissions.ts';
@@ -164,21 +166,179 @@ describe('permissions', () => {
         expect(decisions).toStrictEqual([{ title: 'write notes.txt', kind: 'edit', choice: 'cancelled' }]);
     });
 
-    it('isThrongResultCall: by title substrings, codex and claude spellings', () => {
-        expect(isThrongResultCall(submitCall)).toBe(true);
-        expect(isThrongResultCall({ toolCallId: 't', title: 'mcp__throng_result__submit_result' })).toBe(true);
-        expect(isThrongResultCall({ toolCallId: 't', title: 'mcp.other.submit_result' })).toBe(false);
-        expect(isThrongResultCall({ toolCallId: 't', title: 'mcp.throng_result.other' })).toBe(false);
-        expect(isThrongResultCall({ toolCallId: 't' })).toBe(false);
+    describe('isThrongResultCall', () => {
+        type ToolCall = RequestPermissionRequest['toolCall'];
+        const call = (fields: Omit<ToolCall, 'toolCallId'>): ToolCall => ({ toolCallId: 't', ...fields });
+        const result = { result: { answer: 'pong' } };
+
+        // The submit request of each harness, read from the adapter sources (docs/harnesses.md).
+        const submitShapes: [string, ToolCall, string?][] = [
+            ['claude', call({ title: 'mcp__throng_result__submit_result', kind: 'other', rawInput: result })],
+            ['codex 2.1.1', call({ kind: 'execute' }), 'mcp.throng_result.submit_result'],
+            ['opencode', call({ title: 'throng_result_submit_result', kind: 'other', rawInput: {} })],
+            ['cursor', call({ title: 'throng_result-submit_result: submit_result', kind: 'other', rawInput: null })],
+            [
+                'copilot',
+                call({ title: 'submit_result', kind: 'other', rawInput: result }),
+                'throng_result-submit_result',
+            ],
+            ['gemini 0.61', call({ title: 'submit_result (throng_result MCP Server)', kind: 'other' })],
+        ];
+        it.each(submitShapes)("recognises %s's submit request", (_harness, toolCall, knownTitle) => {
+            expect(isThrongResultCall(toolCall, knownTitle)).toBe(true);
+        });
+
+        it("does not recognise gemini 0.62+'s submit request: no server name in its title", () => {
+            const title = 'submit_result(result: {"answer":"pong"})';
+            expect(isThrongResultCall(call({ title, kind: 'other' }), title)).toBe(false);
+        });
+
+        // Requests whose titles the model shapes: shell commands, opencode's external_directory, gemini edits.
+        const spoofs: [string, ToolCall, string?][] = [
+            [
+                'claude Bash naming both words',
+                call({
+                    title: 'echo throng_result submit_result; rm -rf x',
+                    kind: 'execute',
+                    rawInput: { command: 'echo throng_result submit_result; rm -rf x' },
+                }),
+            ],
+            [
+                'claude Bash whose command is the claude form',
+                call({
+                    title: 'mcp__throng_result__submit_result',
+                    kind: 'execute',
+                    rawInput: { command: 'mcp__throng_result__submit_result' },
+                }),
+            ],
+            [
+                'opencode external_directory',
+                call({
+                    title: 'cat /tmp/throng_result_submit_result',
+                    kind: 'other',
+                    rawInput: {
+                        command: 'cat /tmp/throng_result_submit_result',
+                        directories: ['/tmp'],
+                        patterns: ['/tmp/*'],
+                    },
+                }),
+            ],
+            [
+                'opencode external_directory titled exactly the opencode form',
+                call({
+                    title: 'throng_result_submit_result',
+                    kind: 'other',
+                    rawInput: { command: 'throng_result_submit_result', directories: ['/tmp'], patterns: ['/tmp/*'] },
+                }),
+            ],
+            [
+                'gemini shell titled exactly the gemini form',
+                call({ title: 'submit_result (throng_result MCP Server)', kind: 'execute' }),
+            ],
+            [
+                'gemini edit naming both words',
+                call({ title: 'notes.txt: throng_result => submit_result', kind: 'edit' }),
+            ],
+            [
+                'cursor shell titled exactly the cursor form',
+                call({ title: 'throng_result-submit_result: submit_result', kind: 'execute' }),
+            ],
+            [
+                'copilot shell with model-written titles',
+                call({ title: 'Submit throng_result submit_result', kind: 'execute', rawInput: { command: 'ls' } }),
+                'throng_result submit_result',
+            ],
+            [
+                'copilot shell titled submit_result, its tool_call titled the copilot form',
+                call({ title: 'submit_result', kind: 'execute', rawInput: { command: 'ls' } }),
+                'throng_result-submit_result',
+            ],
+            [
+                'codex command request whose tool_call names the codex form',
+                call({
+                    title: 'Run command',
+                    kind: 'execute',
+                    rawInput: { command: ['bash', '-lc', 'echo'], cwd: '/w' },
+                }),
+                'echo mcp.throng_result.submit_result',
+            ],
+        ];
+        it.each(spoofs)('rejects %s', (_case, toolCall, knownTitle) => {
+            expect(isThrongResultCall(toolCall, knownTitle)).toBe(false);
+        });
+
+        it('exact titles only: other servers, other tools, substrings', () => {
+            expect(isThrongResultCall(call({ title: 'mcp.other.submit_result', kind: 'other' }))).toBe(false);
+            expect(isThrongResultCall(call({ title: 'mcp.throng_result.other', kind: 'other' }))).toBe(false);
+            expect(isThrongResultCall(call({ title: ' mcp__throng_result__submit_result', kind: 'other' }))).toBe(
+                false
+            );
+            expect(isThrongResultCall(call({}))).toBe(false);
+        });
+
+        it('rawInput: absent, null or only `result`; anything else is not ours', () => {
+            const title = 'mcp__throng_result__submit_result';
+            expect(isThrongResultCall(call({ title, rawInput: undefined }))).toBe(true);
+            expect(isThrongResultCall(call({ title, rawInput: { result: 1, command: 'ls' } }))).toBe(false);
+            expect(isThrongResultCall(call({ title, rawInput: ['result'] }))).toBe(false);
+            expect(isThrongResultCall(call({ title, rawInput: 'result' }))).toBe(false);
+        });
+
+        it('the earlier title counts only for a request without a title or titled submit_result', () => {
+            const known = 'throng_result-submit_result';
+            expect(isThrongResultCall(call({ title: 'submit_result', kind: 'other' }), known)).toBe(true);
+            expect(isThrongResultCall(call({ kind: 'other' }), known)).toBe(true);
+            expect(isThrongResultCall(call({ title: 'List files', kind: 'other' }), known)).toBe(false);
+            expect(isThrongResultCall(call({ title: 'submit_result', kind: 'other' }), 'other-submit_result')).toBe(
+                false
+            );
+            expect(isThrongResultCall(call({ title: 'submit_result', kind: 'other' }))).toBe(false);
+            expect(isThrongResultCall(submitCall, 'run ls')).toBe(true);
+        });
+
+        it('isThrongResultTitle: exact forms only', () => {
+            expect(isThrongResultTitle('mcp.throng_result.submit_result')).toBe(true);
+            expect(isThrongResultTitle('echo mcp.throng_result.submit_result')).toBe(false);
+            expect(isThrongResultTitle('submit_result')).toBe(false);
+            expect(isThrongResultTitle(undefined)).toBe(false);
+        });
     });
 
-    it('isThrongResultCall: the same rule on the title an earlier tool_call gave the call (Copilot)', () => {
-        const bare = { toolCallId: 't', title: 'submit_result' };
-        expect(isThrongResultCall(bare)).toBe(false);
-        expect(isThrongResultCall(bare, 'throng_result-submit_result')).toBe(true);
-        expect(isThrongResultCall({ toolCallId: 't' }, 'throng_result-submit_result')).toBe(true);
-        expect(isThrongResultCall(bare, 'other-submit_result')).toBe(false);
-        expect(isThrongResultCall(submitCall, 'run ls')).toBe(true);
+    it('a request naming submit_result that is not recognised is logged once and goes to the answers', async () => {
+        const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+        try {
+            const bridge = createPermissionBridge(() => undefined, deny);
+            const spoof = request(onceOptions, {
+                toolCallId: 't4',
+                title: 'echo throng_result submit_result',
+                kind: 'execute',
+                rawInput: { command: 'echo throng_result submit_result' },
+            });
+            expect(await bridge.answer(spoof)).toStrictEqual({ outcome: { outcome: 'selected', optionId: 'no' } });
+            expect(warn).toHaveBeenCalledTimes(1);
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('submit_result'), {
+                title: 'echo throng_result submit_result',
+                known_title: undefined,
+                kind: 'execute',
+            });
+
+            warn.mockClear();
+            await bridge.answer(
+                request(onceOptions, { toolCallId: 't5', title: 'Run command', kind: 'execute' }),
+                'mcp.x.submit_result'
+            );
+            expect(warn).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({ known_title: 'mcp.x.submit_result' })
+            );
+
+            warn.mockClear();
+            await bridge.answer(request(onceOptions));
+            await bridge.answer(request(onceOptions, submitCall));
+            expect(warn).not.toHaveBeenCalled();
+        } finally {
+            warn.mockRestore();
+        }
     });
 
     it('the bridge allows our submit_result once by its known title; without it the answers decide', async () => {
