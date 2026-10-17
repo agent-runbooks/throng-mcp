@@ -220,14 +220,14 @@ export function deciderFor(answers: PermissionAnswers, opts: DeciderOptions): De
     }
 }
 
-/** The titles throng's submit_result gets, one form per harness (docs/harnesses.md); compared exactly. */
+/** The titles throng's submit_result gets, one form per harness (docs/harnesses.md), compared exactly. */
 const THRONG_RESULT_TITLES: ReadonlySet<string> = new Set([
     'mcp__throng_result__submit_result', // claude
     'mcp.throng_result.submit_result', // codex, on the earlier tool_call
     'throng_result_submit_result', // opencode
     'throng_result-submit_result: submit_result', // cursor
     'throng_result-submit_result', // copilot, on the earlier tool_call
-    'submit_result (throng_result MCP Server)', // gemini <= 0.61; 0.62+ titles it `submit_result(result: …)`
+    'submit_result (throng_result MCP Server)', // gemini up to 0.61 (0.62+ titles it `submit_result(result: …)`)
 ]);
 
 /** Whether `title` is one of `THRONG_RESULT_TITLES`. */
@@ -260,7 +260,7 @@ function allowOwnTool(request: RequestPermissionRequest, knownTitle: string | un
     if (toolCall.title?.includes('submit_result') || knownTitle?.includes('submit_result')) {
         const { rawInput } = toolCall;
         log.warn(
-            "permission request names submit_result but its title, kind or input differ from throng_result's known forms; permission_answers decide",
+            "permission request names submit_result but its title, kind or input differ from throng_result's known forms, so permission_answers decide",
             {
                 title: toolCall.title,
                 known_title: knownTitle,
