@@ -121,6 +121,17 @@ describe('parseResult', () => {
         });
     });
 
+    it('tilde fences and longer backtick fences, closed by the same fence', () => {
+        for (const mark of ['~~~', '````']) {
+            const message = `Here it is.\n${mark}json\n{"answer": "pong"}\n${mark}\n`;
+            expect(parseResult(message, compiled), mark).toStrictEqual({ kind: 'ok', result: { answer: 'pong' } });
+        }
+        const inner = 'Result:\n````json\n{"answer": "pong"}\n```\n````';
+        expect(parseResult(inner, compiled), 'a shorter fence inside does not close it').toStrictEqual({
+            kind: 'missing',
+        });
+    });
+
     it('prose, broken JSON, JSON with trailing prose, an empty message → missing', () => {
         expect(parseResult('Done, the answer is pong.', compiled)).toStrictEqual({ kind: 'missing' });
         expect(parseResult('{"answer": "pong"', compiled)).toStrictEqual({ kind: 'missing' });

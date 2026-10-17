@@ -32,8 +32,8 @@ export function compileSchema(schema: JsonSchemaObject): CompiledSchema {
 export type StructuredResult =
     { kind: 'ok'; result: unknown } | { kind: 'missing' } | { kind: 'invalid'; errors: string };
 
-/** A fenced code block: the opening fence with any info string, the content, the closing fence on its own line. */
-const FENCED_BLOCK = /^[ \t]*```[^\n`]*\n([\s\S]*?)^[ \t]*```[ \t\r]*$/gm;
+/** A fenced code block: three or more backticks or tildes with any info string, the content, the same fence closing it. */
+const FENCED_BLOCK = /^[ \t]*(`{3,}|~{3,})[^\n`]*\n([\s\S]*?)^[ \t]*\1[ \t\r]*$/gm;
 
 /**
  * The result in the agent's final message: the whole trimmed message as JSON, else the content of its last fenced
@@ -43,7 +43,7 @@ export function parseResult(message: string, schema: CompiledSchema): Structured
     let value = parseJson(message.trim());
     if (value === undefined) {
         const last = [...message.matchAll(FENCED_BLOCK)].at(-1);
-        if (last) value = parseJson((last[1] ?? '').trim());
+        if (last) value = parseJson((last[2] ?? '').trim());
     }
     if (value === undefined) return { kind: 'missing' };
     const validation = schema.validate(value.json);

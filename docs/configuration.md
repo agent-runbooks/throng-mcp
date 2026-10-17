@@ -134,7 +134,7 @@ Dialogs, when they are on:
 
 Claude Code has no auto mode for some models (haiku, for one) and falls back to accept-edits. throng warns `permission mode "auto" not applied: the agent switched to "acceptEdits"`; file edits are still auto-approved, anything else the harness asks about goes to `permission_answers` (rejected by default). Pick another model if you need the real auto mode.
 
-Gemini CLI runs with its workspace trusted (`GEMINI_CLI_TRUST_WORKSPACE=true`) under both harness modes: in an untrusted folder it refuses `yolo` and starts no MCP servers. In its `default` mode read-only tools run without asking; edits, shell and MCP tools ask.
+Gemini CLI runs with its workspace trusted (`GEMINI_CLI_TRUST_WORKSPACE=true`) under both harness modes: in an untrusted folder it refuses `yolo` and starts no MCP servers. In its `default` mode read-only tools run without asking, while edits, shell and MCP tools ask.
 
 Cursor CLI applies file edits without asking under both harness modes. throng answers only the requests a harness sends, so even `ask` + `deny` lets Cursor edit the `cwd`; only shell, MCP tools and web search reach `permission_answers`.
 

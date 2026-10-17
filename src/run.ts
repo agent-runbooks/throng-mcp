@@ -352,10 +352,10 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
                 log.warn('session record not updated', { session: sessionId, error: errorText(err) })
             );
         }
-        ctx.onTurnStarted?.(sessionId);
-        let response = await turn(buildPrompt(call.prompt, call.schema));
         // Structured output (DESIGN §6): the result is read from each turn's final message, with at most two re-prompts.
         const compiled = call.schema ? compileSchema(call.schema) : undefined;
+        ctx.onTurnStarted?.(sessionId);
+        let response = await turn(buildPrompt(call.prompt, call.schema));
         for (let corrective = 0; compiled; corrective++) {
             const parsed = parseResult(collector.finalText, compiled);
             if (parsed.kind === 'ok') return finish(response, sessionId, parsed);
