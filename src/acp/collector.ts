@@ -5,6 +5,7 @@ import type { Usage } from '../contract.ts';
 
 export class Collector {
     #text = '';
+    #finalText = '';
     /** Agent text received outside a prompt turn. */
     #preTurn = '';
     #inTurn = false;
@@ -23,6 +24,7 @@ export class Collector {
         if (before) this.#warn(`agent message before the task: ${before.slice(0, 300)}`);
         this.#preTurn = '';
         this.#text = '';
+        this.#finalText = '';
         this.#inTurn = true;
     }
 
@@ -31,12 +33,15 @@ export class Collector {
         switch (update.sessionUpdate) {
             case 'agent_message_chunk':
                 if (update.content.type === 'text') {
-                    if (this.#inTurn) this.#text += update.content.text;
-                    else if (!this.#isNoise(update.content.text)) this.#preTurn += update.content.text;
+                    if (this.#inTurn) {
+                        this.#text += update.content.text;
+                        this.#finalText += update.content.text;
+                    } else if (!this.#isNoise(update.content.text)) this.#preTurn += update.content.text;
                 }
                 break;
             case 'tool_call':
                 this.#lastToolTitle = update.title;
+                if (this.#inTurn) this.#finalText = '';
                 break;
             case 'tool_call_update':
                 if (update.title != null) this.#lastToolTitle = update.title;
@@ -73,6 +78,11 @@ export class Collector {
     /** Agent text of the last turn. */
     get text(): string {
         return this.#text;
+    }
+
+    /** The last turn's final message: its agent text after the last `tool_call` (DESIGN §6). */
+    get finalText(): string {
+        return this.#finalText;
     }
 
     get usage(): Usage {

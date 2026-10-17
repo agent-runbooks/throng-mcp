@@ -1,8 +1,6 @@
 import * as acp from '@agentclientprotocol/sdk';
 import type {
     AgentContext,
-    McpServer,
-    McpServerStdio,
     PermissionOption,
     SessionConfigOption,
     SessionModeState,
@@ -10,8 +8,6 @@ import type {
     StopReason,
     ToolCallUpdate,
 } from '@agentclientprotocol/sdk';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
@@ -71,25 +67,8 @@ record({
     ...(allowAll === undefined ? {} : { allowAll }),
     ...(Object.keys(probes).length ? { probes } : {}),
 });
-/** copilot-*: the stdio servers of `--additional-mcp-config <json>`, in the shape of an ACP session request. */
-const launchServers: McpServerStdio[] = (() => {
-    const at = process.argv.indexOf('--additional-mcp-config');
-    if (!copilot || at < 0) return [];
-    const config = JSON.parse(process.argv[at + 1] ?? '') as {
-        mcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
-    };
-    return Object.entries(config.mcpServers).map(([name, server]) => ({
-        name,
-        command: server.command,
-        args: server.args ?? [],
-        env: Object.entries(server.env ?? {}).map(([envName, value]) => ({ name: envName, value })),
-    }));
-})();
-
-/** The servers a session gets: copilot-* drops those of the request (Copilot refuses stdio) and uses the launch arg's. */
-function sessionServers(requested: McpServer[]): McpServer[] {
-    return copilot ? launchServers : requested;
-}
+/** copilot-* and json-*: session/new, session/resume and session/load are logged with the MCP servers they carry. */
+const logsServers = copilot || turnScenario.startsWith('json-');
 
 /** FAKE_STDERR: a line written to stderr at startup, before the handshake. */
 if (process.env.FAKE_STDERR) process.stderr.write(`${process.env.FAKE_STDERR}\n`);
@@ -98,7 +77,6 @@ interface FakeSession {
     resumed: boolean;
     /** From session/new or session/resume. */
     cwd: string;
-    mcpServers: McpServer[];
     modeId: string;
     configOptions: SessionConfigOption[];
     /** gemini-*: the model of `models`, changed by session/set_model. */
@@ -137,11 +115,10 @@ function withoutPrefix(text: string): string {
 /** Scenarios that end the turn with something other than end_turn. */
 const STOP_REASONS: Partial<Record<string, StopReason>> = { refuse: 'refusal', 'max-turns': 'max_turn_requests' };
 
-function freshSession(resumed: boolean, cwd: string, mcpServers: McpServer[]): FakeSession {
+function freshSession(resumed: boolean, cwd: string): FakeSession {
     const session: FakeSession = {
         resumed,
         cwd,
-        mcpServers,
         modeId: 'ask',
         configOptions: [
             {
@@ -279,31 +256,10 @@ function selectValues(option: SessionConfigOption): string[] {
     return option.options.flatMap(o => ('value' in o ? [o.value] : o.options.map(g => g.value)));
 }
 
-// submit-*: the result the agent submits to throng_result. The valid one can be overridden with FAKE_SUBMIT (JSON);
-// one with string `file` and `content` (the smoke's schema) is also written to the session cwd first.
-const VALID_SUBMIT: unknown = process.env.FAKE_SUBMIT ? JSON.parse(process.env.FAKE_SUBMIT) : { answer: 'pong' };
-const INVALID_SUBMIT = { answer: 1 };
-
-/** Calls `submit_result` of the session's throng_result stdio server, as a harness would. */
-async function submit(session: FakeSession, result: unknown): Promise<{ isError: boolean; text: string }> {
-    const entry = session.mcpServers.find(s => s.name === 'throng_result' && !('type' in s));
-    if (!entry || !('command' in entry)) throw new Error('no throng_result stdio server in mcpServers');
-    const transport = new StdioClientTransport({
-        command: entry.command,
-        args: entry.args,
-        env: Object.fromEntries(entry.env.map(e => [e.name, e.value])),
-        stderr: 'inherit',
-    });
-    const client = new Client({ name: 'fake-agent', version: '0' });
-    await client.connect(transport);
-    try {
-        const response = await client.callTool({ name: 'submit_result', arguments: { result } });
-        const content = response.content as { type: string; text?: string }[];
-        return { isError: response.isError === true, text: content[0]?.text ?? '' };
-    } finally {
-        await client.close();
-    }
-}
+// json-*: the result the agent writes as its final message. The valid one can be overridden with FAKE_RESULT (JSON).
+// json-valid writes one with string `file` and `content` (the smoke's schema) to the session cwd first.
+const VALID_RESULT: unknown = process.env.FAKE_RESULT ? JSON.parse(process.env.FAKE_RESULT) : { answer: 'pong' };
+const INVALID_RESULT = { answer: 1 };
 
 /** copilot-*: the tool runs without a permission request (allow_all on, or COPILOT_ALLOW_ALL=true). */
 function copilotApproves(session: FakeSession): boolean {
@@ -397,86 +353,58 @@ async function runTurn(sessionId: string, text: string, client: AgentContext, si
             await say(`you said: ${notes.join(' | ')}`);
             return;
         }
-        case 'submit-valid': {
-            const valid = VALID_SUBMIT as { file?: unknown; content?: unknown } | null;
+        case 'json-valid': {
+            const valid = VALID_RESULT as { file?: unknown; content?: unknown } | null;
             if (typeof valid?.file === 'string' && typeof valid.content === 'string') {
                 await writeFile(join(session.cwd, valid.file), valid.content);
             }
-            await submit(session, VALID_SUBMIT);
+            await say(JSON.stringify(VALID_RESULT));
             return;
         }
-        case 'submit-invalid-then-valid': {
-            const rejected = await submit(session, INVALID_SUBMIT);
-            if (!rejected.isError || !rejected.text.startsWith('rejected: ')) {
-                throw new Error(`invalid result not rejected: ${rejected.text}`);
-            }
-            await submit(session, VALID_SUBMIT);
-            await say('done');
+        case 'json-fenced':
+            await say('Here is the result.\n\n```json\n');
+            await say(JSON.stringify(VALID_RESULT, null, 2));
+            await say('\n```\n');
             return;
-        }
-        case 'submit-missing':
+        case 'json-after-tool':
+            await say('Checking the README first.');
+            await send({ sessionUpdate: 'tool_call', toolCallId: 't1', title: 'read README.md', kind: 'read' });
+            await send({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' });
+            await say(JSON.stringify(VALID_RESULT));
+            return;
+        case 'json-invalid-then-valid':
+            // The corrective prompt must carry the ajv errors of the first answer.
+            if (session.prompts === 1) await say(JSON.stringify(INVALID_RESULT));
+            else if (text.includes('result/answer must be string')) await say(JSON.stringify(VALID_RESULT));
+            else await say(`unexpected corrective prompt: ${text}`);
+            return;
+        case 'json-missing':
+            await say(`turn ${session.prompts}: ${withoutPrefix(text)}`);
+            return;
+        case 'json-invalid-always':
             await say(`turn ${session.prompts}`);
+            await send({ sessionUpdate: 'tool_call', toolCallId: 't1', title: 'read README.md', kind: 'read' });
+            await say(JSON.stringify(INVALID_RESULT));
             return;
-        case 'submit-invalid-always':
-            await submit(session, INVALID_SUBMIT);
-            await say(`turn ${session.prompts}`);
-            return;
-        case 'submit-ask': {
-            if (copilot) {
-                // Copilot titles the tool_call `<server>-<tool>` and the permission request for it only `<tool>`.
-                await send({
-                    sessionUpdate: 'tool_call',
-                    toolCallId: 't3',
-                    title: process.env.FAKE_TOOL_TITLE ?? 'throng_result-submit_result',
-                    kind: 'other',
-                    status: 'pending',
-                });
-                if (process.env.FAKE_TOOL_RETITLE) {
-                    await send({
-                        sessionUpdate: 'tool_call_update',
-                        toolCallId: 't3',
-                        title: process.env.FAKE_TOOL_RETITLE,
-                    });
-                }
-                if (!copilotApproves(session)) {
-                    const answer = await client.request(acp.methods.client.session.requestPermission, {
-                        sessionId,
-                        toolCall: {
-                            toolCallId: 't3',
-                            title: 'submit_result',
-                            kind: 'other',
-                            status: 'pending',
-                            rawInput: { result: VALID_SUBMIT },
-                        },
-                        options: COPILOT_PERMISSION_OPTIONS,
-                    });
-                    if (answer.outcome.outcome !== 'selected' || answer.outcome.optionId !== 'allow_once') {
-                        await say('denied');
-                        return;
-                    }
-                }
-                await submit(session, VALID_SUBMIT);
-                return;
-            }
-            // Like a harness that asks before an MCP tool: submits only if throng allows it.
+        case 'submit-like-ask': {
+            // Titled like throng's former submit tool: throng must answer it through permission_answers like any other.
             const answer = await client.request(acp.methods.client.session.requestPermission, {
                 sessionId,
                 toolCall: {
                     toolCallId: 't3',
-                    title: 'mcp.throng_result.submit_result',
+                    title: 'mcp__throng_result__submit_result',
                     kind: 'other',
                     status: 'pending',
+                    rawInput: { result: VALID_RESULT },
                 },
                 options: [
                     { optionId: 'approve', name: 'Allow', kind: 'allow_once' },
                     { optionId: 'decline', name: 'Reject', kind: 'reject_once' },
                 ],
             });
-            if (answer.outcome.outcome !== 'selected' || answer.outcome.optionId !== 'approve') {
-                await say('denied');
-                return;
-            }
-            await submit(session, VALID_SUBMIT);
+            await say(
+                answer.outcome.outcome === 'selected' && answer.outcome.optionId === 'approve' ? 'allowed' : 'rejected'
+            );
             return;
         }
         case 'echo':
@@ -678,18 +606,24 @@ app.onRequest('authenticate', ctx => {
 app.onRequest('session/new', async ctx => {
     requireAuth();
     const sessionId = `fake-${randomUUID()}`;
-    if (copilot) record({ event: 'new', mcpServers: ctx.params.mcpServers.map(s => s.name) });
-    const session = freshSession(false, ctx.params.cwd, sessionServers(ctx.params.mcpServers));
+    if (logsServers) record({ event: 'new', mcpServers: ctx.params.mcpServers.map(s => s.name) });
+    const session = freshSession(false, ctx.params.cwd);
     sessions.set(sessionId, session);
     await earlyUpdate(sessionId, ctx.client);
     if (gemini) return { sessionId, modes: modes(session), models: models(session) };
     return { sessionId, modes: modes(session), configOptions: session.configOptions };
 })
     .onRequest('session/resume', async ctx => {
+        if (logsServers) {
+            record({
+                event: 'resume',
+                ...(ctx.params.mcpServers ? { mcpServers: ctx.params.mcpServers.map(s => s.name) } : {}),
+            });
+        }
         if (scenario === 'resume-memory' && !(await readNotes(ctx.params.sessionId))) {
             throw acp.RequestError.invalidParams(undefined, `unknown session ${ctx.params.sessionId}`);
         }
-        const session = freshSession(true, ctx.params.cwd, ctx.params.mcpServers ?? []);
+        const session = freshSession(true, ctx.params.cwd);
         sessions.set(ctx.params.sessionId, session);
         await earlyUpdate(ctx.params.sessionId, ctx.client);
         return { modes: modes(session), configOptions: session.configOptions };
@@ -698,14 +632,14 @@ app.onRequest('session/new', async ctx => {
         record({
             event: 'load',
             sessionId: ctx.params.sessionId,
-            ...(copilot ? { mcpServers: ctx.params.mcpServers.map(s => s.name) } : {}),
+            ...(logsServers ? { mcpServers: ctx.params.mcpServers.map(s => s.name) } : {}),
         });
         requireAuth();
         const { sessionId } = ctx.params;
         if (['resume-memory', 'steer'].includes(turnScenario) && !(await readNotes(sessionId))) {
             throw acp.RequestError.invalidParams(undefined, `unknown session ${sessionId}`);
         }
-        const session = freshSession(true, ctx.params.cwd, sessionServers(ctx.params.mcpServers));
+        const session = freshSession(true, ctx.params.cwd);
         sessions.set(sessionId, session);
         await replayHistory(sessionId, ctx.client);
         return { modes: modes(session), configOptions: session.configOptions };

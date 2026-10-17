@@ -123,7 +123,7 @@ So `harness_mode: auto` with `permission_answers: auto` is "the harness decides 
 
 It works at the same places. At one place, `permissions` together with `harness_mode` or `permission_answers` is a config error: use one or the other.
 
-Answers are always one-time options, never "always allow" (Claude would write that rule into the project settings). throng's own `submit_result` (structured output) is allowed under every setting. Cancelling a run answers its pending requests `cancelled` and closes any open dialog.
+Answers are always one-time options, never "always allow" (Claude would write that rule into the project settings). throng approves nothing by itself: every request goes to `permission_answers`. Structured output involves no permission request, since the result comes from the agent's final message. Cancelling a run answers its pending requests `cancelled` and closes any open dialog.
 
 Dialogs, when they are on:
 
@@ -134,7 +134,7 @@ Dialogs, when they are on:
 
 Claude Code has no auto mode for some models (haiku, for one) and falls back to accept-edits. throng warns `permission mode "auto" not applied: the agent switched to "acceptEdits"`; file edits are still auto-approved, anything else the harness asks about goes to `permission_answers` (rejected by default). Pick another model if you need the real auto mode.
 
-Gemini CLI runs with its workspace trusted (`GEMINI_CLI_TRUST_WORKSPACE=true`) under both harness modes: in an untrusted folder it refuses `yolo` and starts no MCP servers, throng's `submit_result` included. In its `default` mode read-only tools run without asking; edits, shell and MCP tools ask.
+Gemini CLI runs with its workspace trusted (`GEMINI_CLI_TRUST_WORKSPACE=true`) under both harness modes: in an untrusted folder it refuses `yolo` and starts no MCP servers. In its `default` mode read-only tools run without asking, while edits, shell and MCP tools ask.
 
 Cursor CLI applies file edits without asking under both harness modes. throng answers only the requests a harness sends, so even `ask` + `deny` lets Cursor edit the `cwd`; only shell, MCP tools and web search reach `permission_answers`.
 

@@ -256,7 +256,7 @@ The prompt is self-contained: the nested session sees nothing of the calling con
 | `cancel_thronglet` | stops a session's running turn |
 | `list_harnesses` | the installed harnesses, their models and effort levels |
 
-`background: true` on `run_thronglet` or `send_message` returns as soon as the turn is running; `wait_thronglet` collects the result later, which is how several agents run at once. `schema` asks for structured output: the agent fills a JSON Schema and the result comes back as `structured` instead of `text`.
+`background: true` on `run_thronglet` or `send_message` returns as soon as the turn is running; `wait_thronglet` collects the result later, which is how several agents run at once. `schema` asks for structured output: the agent ends with a JSON value matching the JSON Schema, and the result comes back as `structured` instead of `text`.
 
 A failure is an MCP tool error with `code`, `message` and, when the session exists, `session_id` and the partial `text`. Every field, error code and stop reason of every tool is in [DESIGN §3](docs/DESIGN.md#3-external-contract).
 

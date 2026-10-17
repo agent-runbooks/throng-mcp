@@ -58,7 +58,6 @@ const DEFAULT_TIMEOUT_S = 300;
 const DEFAULT_STEER_DELAY_S = 10;
 // Past throng's whole shutdown of an adapter (stdin closed, SIGTERM after the exit grace, SIGKILL after another), plus slack.
 const ORPHAN_WAIT_MS = 2 * DEFAULT_EXIT_GRACE_MS + 2000;
-// submit-tool: the structured-output server the harness spawns; its argv carries the run's temp dir under our TMPDIR.
 // gemini.*--acp: a relaunched Gemini CLI may show its package entry (`…/gemini-cli/…/index.js --acp`), not `gemini --acp`.
 // copilot.*--acp: the npm bin is a node wrapper that runs the native `…/copilot --acp`; both lines match.
 const ADAPTER_PATTERNS = [
@@ -68,13 +67,8 @@ const ADAPTER_PATTERNS = [
     'gemini.*--acp',
     'cursor-agent',
     'copilot.*--acp',
-    `submit-tool\\.ts --schema ${escapeRegex(join(tmpdir(), 'throng-'))}`,
 ];
 const repo = resolve(fileURLToPath(new URL('../..', import.meta.url)));
-
-function escapeRegex(text: string): string {
-    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 function usage(message?: string): never {
     if (message) console.error(message);

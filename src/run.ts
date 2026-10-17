@@ -1,8 +1,5 @@
-import type { McpServerStdio, PromptResponse, SessionNotification } from '@agentclientprotocol/sdk';
+import type { PromptResponse, SessionNotification } from '@agentclientprotocol/sdk';
 import { statSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { Collector } from './acp/collector.ts';
 import type { WorkerHooks } from './acp/types.ts';
 import { continuation, startWorker } from './acp/worker.ts';
@@ -25,7 +22,6 @@ import {
     deciderFor,
     type Elicitation,
     elicits,
-    isThrongResultCall,
     type PermissionBridge,
     resolvePermissions,
 } from './permissions.ts';
@@ -34,7 +30,7 @@ import { buildCorrectivePrompt, buildPrompt } from './prompt.ts';
 import type { SessionRegistry } from './registry.ts';
 import type { Semaphore } from './semaphore.ts';
 import { endTurn, type SessionRecord, updateSessionRecord, writeSessionRecord } from './sessions.ts';
-import type { SubmitState } from './structured/validate.ts';
+import { compileSchema, parseResult } from './structured/validate.ts';
 
 // The pipeline shared by run_thronglet and send_message (DESIGN §3.2, §3.3, §4.2, §7):
 // guards → session queue → semaphore → Worker → harness mode → model/effort → prompt → payload. The adapter's lifetime is in lifecycle.ts.
@@ -53,8 +49,6 @@ export interface RunContext {
     env?: NodeJS.ProcessEnv;
     now?: () => number;
     cacheDir: string;
-    /** Absolute path of the submit tool (src/structured/submit-tool.ts, or its dist/ build), spawned for `schema` runs. */
-    submitTool: string;
     /** How long a cancelled prompt may take to settle before the worker is closed; 5000 by default. */
     cancelGraceMs?: number;
     /** Passed to the Worker (stdin close → SIGTERM → SIGKILL steps); the Worker's default otherwise. */
@@ -72,7 +66,7 @@ const QUEUE_WARNING_MS = 1000;
 const CANCELLED_BY_TOOL = 'cancelled by cancel_thronglet';
 const CANCELLED_BY_STEER = 'cancelled by steer';
 const MAX_CORRECTIVE_PROMPTS = 2;
-/** Stop reasons after which a missing or rejected structured result gets a corrective prompt (DESIGN §6). */
+/** Stop reasons after which a missing or invalid structured result gets a corrective prompt (DESIGN §6). */
 const CORRECTABLE_STOPS: readonly string[] = ['end_turn', 'max_tokens', 'max_turn_requests'];
 
 /** What to start: a new session from the agent spec, or an earlier one from its session record. */
@@ -125,15 +119,8 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
     let detachTurn: (() => void) | undefined;
     /** Mode the permission setup requests; the agent may fall back to another one (claude: auto → acceptEdits). */
     let requestedMode: string | undefined;
-    /** Temp dir of the structured-output run: schema.json and submit-tool's result.json. */
-    let structuredDir: string | undefined;
     /** Text of the most recent turn that had any; the collector only keeps the current turn. */
     let lastText = '';
-    /**
-     * Title per `toolCallId` from tool_call updates, for recognising our own submit_result in a request.
-     * Once a title marks the call as ours, later titles don't replace it.
-     */
-    const toolTitles = new Map<string, string>();
 
     const warn = (text: string) => {
         if (!warnings.includes(text)) warnings.push(text);
@@ -150,11 +137,6 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
     const onUpdate = (notification: SessionNotification) => {
         collector.handle(notification);
         const { update } = notification;
-        if ((update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') && update.title) {
-            const known = toolTitles.get(update.toolCallId);
-            if (!isThrongResultCall({ toolCallId: update.toolCallId }, known))
-                toolTitles.set(update.toolCallId, update.title);
-        }
         if (update.sessionUpdate === 'tool_call') ctx.progress.tool(update.title);
         else if (update.sessionUpdate === 'agent_message_chunk') ctx.progress.text(collector.text.length);
         else if (
@@ -259,23 +241,6 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
         lifecycle.arm(call.timeout_s ?? config.limits.timeout_s);
         ctx.progress.started();
 
-        const mcpServers: McpServerStdio[] = [];
-        let outPath: string | undefined;
-        if (call.schema) {
-            structuredDir = await mkdtemp(join(tmpdir(), 'throng-'));
-            const schemaPath = join(structuredDir, 'schema.json');
-            outPath = join(structuredDir, 'result.json');
-            await writeFile(schemaPath, JSON.stringify(call.schema));
-            // No `type`: ACP stdio servers have none, and claude-agent-acp treats only such entries as stdio (docs/harnesses.md).
-            // The absolute node path: ACP wants one, and codex gives MCP servers a whitelisted env without our PATH.
-            mcpServers.push({
-                name: 'throng_result',
-                command: process.execPath,
-                args: [ctx.submitTool, '--schema', schemaPath, '--out', outPath],
-                env: [],
-            });
-        }
-
         if (answers === 'auto' && !ctx.elicitation) {
             log.info('permission_answers auto: the client has no form elicitation, permission requests are rejected', {
                 tool: call.tool,
@@ -285,16 +250,11 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
         const setup = def.permissionSetup(mode);
         if (setup.warning) warn(setup.warning);
         const { launch } = resolution;
-        const serverArgs = def.mcpServerArgs && mcpServers.length ? def.mcpServerArgs(mcpServers) : [];
-        const sessionServers = def.mcpServerArgs ? [] : mcpServers;
         const hooks: WorkerHooks = {
             onUpdate,
             onPermission: request => {
-                const knownTitle = toolTitles.get(request.toolCall.toolCallId);
-                if (toHuman && !isThrongResultCall(request.toolCall, knownTitle)) {
-                    ctx.progress.tool(`permission: ${request.toolCall.title ?? request.toolCall.toolCallId}`);
-                }
-                return permissions.answer(request, knownTitle);
+                if (toHuman) ctx.progress.tool(`permission: ${request.toolCall.title ?? request.toolCall.toolCallId}`);
+                return permissions.answer(request);
             },
             onWarning: warn,
         };
@@ -302,7 +262,7 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
             startWorker(
                 {
                     command: launch.command,
-                    args: [...launch.args, ...(setup.args ?? []), ...serverArgs],
+                    args: [...launch.args, ...(setup.args ?? [])],
                     env: { ...launch.env, ...setup.env },
                     cwd: target.cwd,
                     depth: ctx.depth,
@@ -312,14 +272,14 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
                     ? {
                           kind: 'new',
                           cwd: target.cwd,
-                          mcpServers: sessionServers,
+                          mcpServers: [],
                           ...(setup.newSessionMeta ? { meta: setup.newSessionMeta } : {}),
                       }
                     : {
                           kind: 'resume',
                           sessionId: request.sessionId,
                           cwd: target.cwd,
-                          mcpServers: sessionServers,
+                          mcpServers: [],
                           ...(def.continueViaLoad ? { allowLoad: true } : {}),
                       },
                 hooks,
@@ -392,33 +352,34 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
                 log.warn('session record not updated', { session: sessionId, error: errorText(err) })
             );
         }
+        // Structured output (DESIGN §6): the result is read from each turn's final message, with at most two re-prompts.
+        const compiled = call.schema ? compileSchema(call.schema) : undefined;
         ctx.onTurnStarted?.(sessionId);
-        let response = await turn(buildPrompt(call.prompt, call.schema !== undefined));
-        // Structured output (DESIGN §6): after each turn read submit-tool's out file; re-prompt at most twice.
-        for (let corrective = 0; outPath; corrective++) {
-            const state = await readSubmitState(outPath, warn);
-            if (state?.ok) return finish(response, sessionId, state);
+        let response = await turn(buildPrompt(call.prompt, call.schema));
+        for (let corrective = 0; compiled; corrective++) {
+            const parsed = parseResult(collector.finalText, compiled);
+            if (parsed.kind === 'ok') return finish(response, sessionId, parsed);
             if (!CORRECTABLE_STOPS.includes(response.stopReason)) break;
             if (corrective === MAX_CORRECTIVE_PROMPTS) {
-                throw state
-                    ? new ThrongError('structured_invalid', `last submit_result rejected: ${state.errors}`)
+                throw parsed.kind === 'invalid'
+                    ? new ThrongError('structured_invalid', `last result does not match the schema: ${parsed.errors}`)
                     : new ThrongError(
                           'structured_missing',
-                          `agent did not call submit_result after ${MAX_CORRECTIVE_PROMPTS} corrective prompts`
+                          `agent's final message held no JSON after ${MAX_CORRECTIVE_PROMPTS} corrective prompts`
                       );
             }
-            log.info('structured result not submitted; corrective prompt', {
+            log.info('structured result missing or invalid, sending a corrective prompt', {
                 tool: call.tool,
                 session: sessionId,
                 attempt: corrective + 1,
-                last: state ? 'rejected' : 'missing',
+                last: parsed.kind,
             });
-            response = await turn(buildCorrectivePrompt(state));
+            response = await turn(buildCorrectivePrompt(parsed));
         }
         return finish(response, sessionId);
     };
 
-    /** `structured` is the accepted submit_result; it replaces `text` in the payload. */
+    /** `structured` is the turn's valid result, returned in place of `text`. */
     const finish = (response: PromptResponse, id: string, structured?: { result: unknown }): RunSuccess => {
         const text = collector.text;
         switch (response.stopReason) {
@@ -490,12 +451,6 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
     } finally {
         if (unlockSession) lifecycle.whenGone(unlockSession);
     }
-    // After close: the tree kill has taken the harness's submit-tool child with it.
-    if (structuredDir !== undefined) {
-        await rm(structuredDir, { recursive: true, force: true }).catch((err: unknown) =>
-            log.warn('structured temp dir not removed', { dir: structuredDir, error: errorText(err) })
-        );
-    }
     log.info(`${call.tool} done`, {
         ...call.logFields,
         code: outcome.ok ? 'ok' : outcome.payload.code,
@@ -503,26 +458,6 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
         duration_s: outcome.payload.duration_s,
     });
     return outcome;
-}
-
-/** submit-tool's out file; `undefined` when absent or unreadable (the latter with a warning): both mean "not submitted". */
-async function readSubmitState(path: string, warn: (text: string) => void): Promise<SubmitState | undefined> {
-    let raw: string;
-    try {
-        raw = await readFile(path, 'utf8');
-    } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') warn(`structured result unreadable: ${errorText(err)}`);
-        return undefined;
-    }
-    try {
-        const state = JSON.parse(raw) as Partial<SubmitState> | null;
-        if (state?.ok === true && 'result' in state) return state as SubmitState;
-        if (state?.ok === false && typeof state.errors === 'string') return state as SubmitState;
-        warn(`structured result unreadable: unexpected content ${raw.slice(0, 200)}`);
-    } catch (err) {
-        warn(`structured result unreadable: ${errorText(err)}`);
-    }
-    return undefined;
 }
 
 function isDirectory(path: string): boolean {

@@ -101,7 +101,7 @@ type ErrorCode =
   | 'timeout'                // the turn exceeded timeout_s
   | 'cancelled'              // the client (Esc, TaskStop), a steer, cancel_thronglet or the agent itself; the message names the source
   | 'transport_lost'         // the adapter exited or closed its stdio mid-turn, or the server running the turn died (§3.7)
-  | 'empty_result'           // end_turn without a single agent_message_chunk and without submit_result; wait_thronglet: the record holds no turn result
+  | 'empty_result'           // end_turn without a single agent_message_chunk and without a structured result; wait_thronglet: the record holds no turn result
   | 'structured_missing' | 'structured_invalid'   // after 2 corrective re-prompts
   | 'refusal'                // stop_reason refusal is reported as an error
   | 'agent_error';           // anything else the adapter reported; cancel_thronglet: see §3.8
@@ -246,17 +246,16 @@ src/
   acp/
     process.ts              — spawn in own process group, kill tree, descendant snapshot
     worker.ts               — Worker: connect/initialize/authenticate/newSession|resumeSession|loadSession/setOptions/prompt/cancel/close
-    collector.ts            — fold session/update → text, usage, warnings
+    collector.ts            — fold session/update → text, final message, usage, warnings
   sessions.ts               — session records on disk (§8)
   registry.ts               — live sessions of this process: state, queue, running turn, waiters (§3.3, §3.6)
   permissions.ts            — harness_mode and permission_answers from config; answers to request_permission; bridge to MCP elicitation
   structured/
-    submit-tool.ts          — stdio MCP server spawned by the harness: submit_result → ajv → result file
-    validate.ts             — ajv
+    validate.ts             — ajv, and the result from the final message (§6)
   run.ts                    — orchestration of one run/resume call
   lifecycle.ts              — slot, cancel/timeout race, worker start/cancel/close for one call
   list.ts                   — list_harnesses: probe every harness
-  prompt.ts                 — prompt prefix, submit_result instructions
+  prompt.ts                 — prompt prefix, the result format with the schema, corrective prompts (§6)
   progress.ts               — Progress interface (the MCP implementation is mcp/progress.ts)
   semaphore.ts log.ts
   **/*.test.ts              — vitest, next to the module under test
@@ -273,7 +272,7 @@ throng-mcp ships no adapters and no harnesses (decision-3). The user installs bo
 
 How each built-in harness is wired (adapter command, install hint, auth, model, effort, both harness modes, continuation) is tabled in [harnesses.md](harnesses.md#overview).
 
-Gemini runs with `GEMINI_CLI_TRUST_WORKSPACE=true` under both harness modes, not only `auto`: without it the folder is untrusted, `yolo` is refused and the `submit_result` server (§6) never starts. The caller chose `cwd`, and nobody is there to answer a trust dialog.
+Gemini runs with `GEMINI_CLI_TRUST_WORKSPACE=true` under both harness modes, not only `auto`: without it the folder is untrusted and `yolo` is refused. The caller chose `cwd`, and nobody is there to answer a trust dialog.
 
 Availability is decided by the adapter command only. Adapter not on PATH and no `harnesses.<id>.command` → the harness is not installed (`notInstalled`): `list_harnesses` leaves it out (§3.4), and `run_thronglet` fails with `harness_unavailable` and `<command> not found on PATH; install: <hint>` before spawn. A configured command that is not found is a broken config rather than a missing install: `unavailable` with `<value> (harnesses.<id>.command) not found on PATH; install: <hint>` (`not found or not executable` for a path), and the same text in `harness_unavailable`. The harness binary is optional: when `claude`/`codex` is on PATH, its absolute path goes into `CLAUDE_CODE_EXECUTABLE`/`CODEX_PATH` (unless config sets them), so the adapter runs the user's installed and logged-in harness; otherwise the adapter falls back to its bundled platform package, and if that is missing too, the probe fails at handshake and the adapter's error lands in `reason`. Everything past "the command exists" is checked by the probe (§3.4), not by guessing.
 
@@ -298,13 +297,10 @@ interface HarnessDefinition {                 // src/harnesses/types.ts
   preTurnNoise?: RegExp[];   // agent messages outside a turn that are routine for the harness: dropped, not warnings (§4.3)
   authMethodId?: string;     // `authenticate` after `initialize` when the agent lists it in `authMethods` (Cursor: cursor_login)
   continueViaLoad?: boolean; // continue sessions through `session/load` when the agent has `loadSession` but no resume (§3.3)
-  mcpServerArgs?(servers: McpServerStdio[]): string[];   // the run's MCP servers as launch args, for an agent that refuses stdio servers in session requests (Copilot); the requests then carry none (§6)
 }
 ```
 
 `permissionSetup` covers the ways agents switch approval: a session mode, env of the adapter process, `session/new._meta`, a config option (`allow_all=on`, `brave_mode=true`) and a launch flag. The mode is strict: failing to set it fails the run. `configOptions` are best effort: an option the agent does not advertise, or one it rejects, becomes a warning and the turn runs in whatever asking mode the agent is in, where the server's answers (§5) still apply. `args` and `env` apply to the processes of a run; the `list_harnesses` probe has no harness mode and launches without them.
-
-`mcpServerArgs` is for an agent that refuses stdio MCP servers in its session requests. Copilot CLI accepts only http and sse there, but takes stdio servers from its launch flag `--additional-mcp-config` ([harnesses.md](harnesses.md#github-copilot-cli)). When a run has MCP servers (today only `throng_result`, §6), they go into the launch args after the permission setup's `args`, and `session/new`, `session/resume` and `session/load` carry none. The probe has no servers and launches without them.
 
 Model is set strictly: the value must be in `options` of the matching config option, otherwise `model_rejected` with the list. A requested model that is not a listed value but is the name before the `[` of exactly one listed value resolves to that value (Cursor: `gpt-5.4-nano` → `gpt-5.4-nano[reasoning=medium]`); a name shared by several values is `model_rejected` naming those values. An agent without a `model` config option that lists models in the session's unstable `models` field (Gemini CLI) is checked against that list the same way and set with `session/set_model`; the config option wins when both exist. `list_harnesses` shows the full values. Effort: `mapEffort` picks the option value; `undefined` → `warnings`, not an error.
 
@@ -322,7 +318,7 @@ One turn = one adapter process on one ACP session; the next turn of the same ses
 Sequence:
 1. `spawn` (detached, own group, `stdio: [pipe, pipe, pipe]`, stderr → 64 KB ring buffer for error messages). `THRONG_MCP_DEPTH = depth + 1` in the child env.
 2. `connectWith(ndJsonStream)`, `initialize` (`clientCapabilities: { fs: {readTextFile:false, writeTextFile:false}, terminal:false }`). Then `authenticate { methodId }` when the harness definition names an `authMethodId` and the agent lists it in `authMethods` (Cursor); an error there → `handshake_failed` with the agent's message.
-3. `session/new { cwd, mcpServers }` (+ `_meta` from the harness), or for every later turn `session/resume { sessionId, cwd, mcpServers }` when the agent advertises `sessionCapabilities.resume`, else `session/load` with the same params when the definition sets `continueViaLoad` and the agent advertises `loadSession`; the updates that arrive while `session/load` is pending (the replayed history) are dropped. Neither, or an error from either → `session_not_found`. Steps 1–3 run under the handshake timeout (60 s) → `handshake_timeout`.
+3. `session/new { cwd, mcpServers: [] }` (+ `_meta` from the harness), or for every later turn `session/resume { sessionId, cwd, mcpServers: [] }` when the agent advertises `sessionCapabilities.resume`, else `session/load` with the same params when the definition sets `continueViaLoad` and the agent advertises `loadSession`; the updates that arrive while `session/load` is pending (the replayed history) are dropped. Neither, or an error from either → `session_not_found`. Steps 1–3 run under the handshake timeout (60 s) → `handshake_timeout`.
 4. Mode (`setSessionMode`), the harness mode's config options (§4.1), model, effort via `setSessionConfigOption` (model via `session/set_model` for an agent that only has the `models` list). Runs after `session/resume` and `session/load` as well: a fresh adapter process starts in its defaults.
 5. `prompt` → `nextUpdate()` loop until `stop`. Every event → collector + progress.
 6. Structured-output re-prompts (§6): step 5 again.
@@ -338,6 +334,7 @@ Client methods `fs/*`, `terminal/*`: not advertised; if an agent calls them anyw
 
 From the `session/update` stream:
 - `agent_message_chunk` (text) of the current turn → `text`. Each new `prompt` resets the buffer; the last turn is returned.
+- The final message (`finalText`): the turn's agent text after its last `tool_call`. Every `tool_call` in a turn resets it. Structured output reads the result from it (§6).
 - `agent_message_chunk` outside a turn → `warnings` ("agent message before the task"), unless it matches the harness's `preTurnNoise` (§4.1), then it is dropped.
 - `agent_thought_chunk`: ignored.
 - `tool_call` / `tool_call_update`: title → progress.
@@ -374,7 +371,7 @@ The defaults, auto + deny, trust the harness's own auto mode and nothing more: w
 
 At one place, `permissions` next to `harness_mode` or `permission_answers` is a config error (`harnesses.codex: permissions is a shorthand for harness_mode and permission_answers; set either permissions or those two`). The shorthand expands before the per-key resolution, so a place with `permissions` sets both keys there.
 
-A `request_permission` for throng's own `submit_result` (§6) is answered `allow_once` under every setting, before the answers apply. It is recognised by its title, or by the title an earlier `tool_call` / `tool_call_update` gave the same `toolCallId` (Copilot titles the request only `submit_result`).
+throng approves no request by itself: every `request_permission` goes to the answers (decision-11).
 
 throng answers only the requests a harness sends. What a harness does without asking is not gated: Cursor applies file edits on its own under both harness modes ([harnesses.md](harnesses.md#cursor-cli)), so `ask` + `deny` still lets it edit `cwd`.
 
@@ -390,13 +387,14 @@ Elicitation (`elicit`, and `auto` with a capable client):
 
 ## 6. Structured output
 
-One mechanism for all harnesses, transport-independent, no network:
-- With `schema` the server writes the schema to a per-run temp dir (`$TMPDIR/throng-*`) and injects a stdio MCP server into `session/new.mcpServers` (or `session/resume.mcpServers`, `session/load.mcpServers`; for a harness with `mcpServerArgs`, into its launch args instead, §4.1): `{ name:'throng_result', command:<absolute path of the node executable>, args:[<RunContext.submitTool>, '--schema', <path>, '--out', <path>], env:[] }` (`submitTool` is `src/structured/submit-tool.ts` on the sources, `dist/structured/submit-tool.js` in the package, §9; no `type` field: claude-agent-acp quirk; an absolute `command` because ACP wants one and codex gives MCP servers a whitelisted env). The harness spawns it itself; it exposes one tool, `submit_result({ result })`. A `request_permission` for it is answered `allow_once` under every permission setting (§5).
-- The schema is the tool's `inputSchema`: wrapped as `{ type:'object', properties:{ result:<schema> }, required:['result'] }`, the schema's `$defs` / `definitions` hoisted to the wrapper root so local refs resolve, `$schema` dropped. The SDK doesn't check the arguments; submit-tool validates them itself. The prompt only gets an instruction: finish by calling `submit_result`, whose input schema describes `result`.
-- `submit_result` validates with ajv: the engine follows `$schema` (`Ajv2020` for 2020-12, draft-07 `Ajv` otherwise, also when `$schema` is absent), since the dialects differ in keyword semantics (`items` tuples vs `prefixItems`); `allErrors`, non-strict, formats not checked. Every call writes the `--out` file (last write wins): `{ ok:true, result }` with response "accepted", or `{ ok:false, errors }` with an `isError` response carrying the ajv errors, so the agent fixes it within the same turn. After `stop` the server reads the file: no file means not submitted.
-- After a turn that ends with `end_turn`, `max_tokens` or `max_turn_requests` and no valid result: corrective re-prompt ("you didn't call submit_result" / "your last call was rejected: <errors>"), at most 2. Then tool error `structured_missing` (no file) or `structured_invalid` (last call rejected; message carries the ajv errors) with `text` (the last turn's, or the latest non-empty one) and `session_id` in the payload, so the caller sees what the agent said and can resume. `refusal` / `cancelled` fail as without a schema.
-- With a valid result the response carries `structured` and omits `text`; a turn without any agent message is then not `empty_result`.
-- Check: ajv compiles the schema in the tool's input validation, before spawn; an invalid schema is an input error. The temp dir is removed when the run ends (after the adapter's tree kill, which takes submit-tool with it).
+One mechanism for all harnesses: the result is the agent's final message, read as JSON (decision-11). No MCP server is injected, session requests carry `mcpServers: []`, and no permission request is involved.
+- With `schema` the prompt (`buildPrompt`, `src/prompt.ts`) gets a result-format paragraph after the task: end the turn with a final message that is only one JSON value matching the JSON Schema below. A ```` ```json ```` fence around it is fine. The schema follows verbatim, pretty-printed (`JSON.stringify(schema, null, 2)`).
+- The final message is the turn's agent text after its last `tool_call` (`Collector.finalText`, §4.3), so narration before tool calls does not count. `parseResult` (`src/structured/validate.ts`) takes the whole trimmed message as JSON, else the content of its last fenced code block (three or more backticks or tildes, any info string), else there is no result. JSON with prose before or after it, outside a fence, is no result.
+- A parsed value is validated with ajv: the engine follows `$schema` (`Ajv2020` for 2020-12, draft-07 `Ajv` otherwise, also when `$schema` is absent), since the dialects differ in keyword semantics (`items` tuples vs `prefixItems`). Options: `allErrors`, non-strict, formats not checked.
+- After a turn that ends with `end_turn`, `max_tokens` or `max_turn_requests` and no valid result: a corrective prompt, at most 2. No JSON: "Your final message was not a JSON value. Reply with only the JSON value matching the JSON Schema from the task." JSON the schema rejects: "Your JSON does not match the schema: <ajv errors>. Reply with only the corrected JSON value." After the last one, tool error `structured_missing` ("agent's final message held no JSON after 2 corrective prompts") or `structured_invalid` ("last result does not match the schema: <errors>"), decided by the last turn, with `text` (the last turn's, or the latest non-empty one) and `session_id` in the payload, so the caller sees what the agent said and can resume. `refusal` / `cancelled` fail as without a schema.
+- With a valid result the response carries `structured` and omits `text`. A turn with a valid result is never `empty_result`. A turn with no agent text is a missing result and gets a corrective prompt.
+- The same applies to a `send_message` turn with its own `schema`.
+- Check: ajv compiles the schema in the tool's input validation, before spawn. An invalid schema is an input error.
 
 ## 7. Limits and guards
 
@@ -455,10 +453,10 @@ Logs: server stderr has short lines (worker start/stop, errors, every permission
 
 - `package.json`: published to npm, `type: module`, `bin: { throng-mcp: dist/mcp.js }`, `files: [dist, skills, docs, README.md, LICENSE]`, `engines.node: ^22.13 || >=24`. pnpm. Runtime libraries: `@modelcontextprotocol/sdk` ^1 (latest), `@agentclientprotocol/sdk` ^1.5.0, `ajv` ^8, `zod` ^4, `yaml` ^2; they are `devDependencies` bundled into `dist/`, so the package has no runtime dependencies. Other dev: `typescript` (6.x: typescript-eslint has no support for the 7.x native compiler package yet), `@types/node`, `vitest`, `eslint` + `typescript-eslint` (`strictTypeChecked` + `stylisticTypeChecked`), `prettier`, `lefthook`, `tsdown`, `@changesets/cli` + `@changesets/changelog-github`. No adapters (§4.1).
 - Development, tests and smoke run the sources with `node src/mcp.ts`, no transpilation (type stripping, Node >= 22.18 or 24): no `enum`, `namespace`, parameter properties, `import =`. tsconfig: `strict`, `erasableSyntaxOnly`, `verbatimModuleSyntax`, `allowImportingTsExtensions`, `module: nodenext`, `noEmit`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, `resolveJsonModule`. Imports with `.ts`.
-- Published as a tsdown bundle (`tsdown.config.ts`), since Node refuses to strip types under `node_modules`: two ESM entries for Node 22, `dist/mcp.js` (the bin) and `dist/structured/submit-tool.js` (spawned for `schema` runs). The bundle is self-contained: tsdown bundles `devDependencies`, which hold every runtime library, and a rolldown plugin (`scripts/build/third-party-licenses.ts`) writes `dist/THIRD_PARTY_LICENSES.md` with the name, version, license and license text of every package with code in the bundle. `src/mcp.ts` computes the submit tool's path from its own `import.meta.url` (`.ts` next to the sources, `.js` in `dist/`) and passes it down to `RunContext.submitTool`: inside the bundle only the entry's `import.meta.url` is reliable. `package.json` (the version) is a JSON import, inlined into the bundle. `dist/` is ignored by git, prettier and eslint.
+- Published as a tsdown bundle (`tsdown.config.ts`), since Node refuses to strip types under `node_modules`: one ESM entry for Node 22, `dist/mcp.js` (the bin). The bundle is self-contained: tsdown bundles `devDependencies`, which hold every runtime library, and a rolldown plugin (`scripts/build/third-party-licenses.ts`) writes `dist/THIRD_PARTY_LICENSES.md` with the name, version, license and license text of every package with code in the bundle. `package.json` (the version) is a JSON import, inlined into the bundle. `dist/` is ignored by git, prettier and eslint.
 - Scripts: `pnpm build` (`tsdown`; also `prepack`), `pnpm typecheck` (`tsc --noEmit`), `pnpm test` (`vitest --run`; `pnpm test:watch` for watch mode), `pnpm lint` (`eslint .`), `pnpm fmt` (`prettier --write`), `pnpm smoke:<harness>`. The `ci:*` variants are what GitHub Actions runs (`.github/workflows/ci.yml`: lint, typecheck, prettier check, `ci:build`, tests on Node 22, 24 and 26, `ci:changesets` = `changeset status --since=origin/main`). Releases: `pnpm changeset` (`changeset add`); `.github/workflows/release.yml` on push to main runs `ci:version` (`changeset version`) or `ci:publish` (`ci:build` + `changeset publish`) through `changesets/action`. The lefthook pre-commit hook runs fmt, lint --fix and typecheck.
-- `scripts/pack.test.ts` (part of `pnpm test`) checks the package as npm ships it: `pnpm pack` into a temp dir, the tarball holds only `dist/`, `skills/`, `docs/`, README, LICENSE and `package.json`; its `package.json` has no `dependencies` or `peerDependencies`, `dist/THIRD_PARTY_LICENSES.md` is there and names `@modelcontextprotocol/sdk` and `zod`, `dist/` is under 2 MB; unpacked, with no `node_modules` at all, `node dist/mcp.js` answers `list_harnesses` and a `run_thronglet` with a `schema` on the fake agent.
-- Tests without an LLM: `test/fake-agent` is an ACP agent on the agent-side SDK, scenarios via env (`FAKE_SCENARIO=echo|permission|submit-valid|submit-invalid-then-valid|resume|hang|crash-on-prompt|notice`). They cover Worker, collector, permissions (all 8 harness_mode × permission_answers combinations, the `permissions` shorthand; elicit and auto through a fake MCP client with and without the capability), structured (both re-prompt branches), resume, timeouts, cancel, tree kill (fake-agent spawns a grandchild `sleep`; after close it's gone), depth, semaphore, agent-spec parsing.
+- `scripts/pack.test.ts` (part of `pnpm test`) checks the package as npm ships it: `pnpm pack` into a temp dir, the tarball holds only `dist/`, `skills/`, `docs/`, README, LICENSE and `package.json`. Its `package.json` has no `dependencies` or `peerDependencies`, `dist/THIRD_PARTY_LICENSES.md` is there and names `@modelcontextprotocol/sdk` and `zod`, and `dist/` is under 2 MB. Unpacked, with no `node_modules` at all, `node dist/mcp.js` answers `list_harnesses` and returns `structured` for a `run_thronglet` with a `schema` on the fake agent.
+- Tests without an LLM: `test/fake-agent` is an ACP agent on the agent-side SDK, scenarios via env (`FAKE_SCENARIO=echo|permission|json-valid|json-fenced|json-after-tool|json-invalid-then-valid|json-missing|resume|hang|crash-on-prompt|notice`, the full list in `test/fake-agent/index.ts`). They cover Worker, collector, permissions (all 8 harness_mode × permission_answers combinations, the `permissions` shorthand, elicit and auto through a fake MCP client with and without the capability), structured (whole-message and fenced JSON, narration before a tool call ignored, both re-prompt branches), resume, timeouts, cancel, tree kill (fake-agent spawns a grandchild `sleep`, gone after close), depth, semaphore, agent-spec parsing.
 - Smoke on real harnesses (manual, one at a time; commands in [development.md](development.md#smoke), per-stage lists in the backlog tasks): claude/codex/opencode × `auto`, opencode with a custom provider, Esc → no orphans, a call > 2 min from the main session goes to the background; v2 adds codex+schema, resume with a follow-up question, elicit from an interactive session.
 
 ## 10. Stages

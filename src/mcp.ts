@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import pkg from '../package.json' with { type: 'json' };
@@ -17,13 +16,6 @@ import { cacheDir, markInterrupted, rotate } from './sessions.ts';
 
 // Member access rather than destructuring: the bundle then inlines only the version, not the whole package.json.
 const version = pkg.version;
-// Resolved from the entry: inside the bundle, only the entry's import.meta.url says where dist/ is.
-const submitTool = fileURLToPath(
-    new URL(
-        import.meta.url.endsWith('.ts') ? './structured/submit-tool.ts' : './structured/submit-tool.js',
-        import.meta.url
-    )
-);
 
 const loaded = loadConfig();
 if (loaded.error) log.error('config error: run_thronglet refuses to run until it is fixed', { error: loaded.error });
@@ -40,7 +32,6 @@ const tools = registerTools(server, {
     semaphore: new Semaphore(loaded.config.limits.max_concurrency),
     sessions: new SessionRegistry(),
     cacheDir: cache,
-    submitTool,
 });
 const transport = new StdioServerTransport();
 

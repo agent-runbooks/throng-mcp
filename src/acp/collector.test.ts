@@ -25,6 +25,26 @@ describe('collector', () => {
         expect(c.text).toBe('second');
     });
 
+    it('finalText: the turn after its last tool_call, not reset by tool_call_update, reset by startTurn', () => {
+        const c = new Collector();
+        c.startTurn();
+        c.handle(text('narration '));
+        expect(c.finalText).toBe('narration ');
+        c.handle(note({ sessionUpdate: 'tool_call', toolCallId: 't1', title: 'read a.txt' }));
+        c.handle(text('more '));
+        c.handle(note({ sessionUpdate: 'tool_call', toolCallId: 't2', title: 'read b.txt' }));
+        c.handle(text('{"answer":'));
+        c.handle(note({ sessionUpdate: 'tool_call_update', toolCallId: 't2', status: 'completed' }));
+        c.handle(text('"pong"}'));
+        c.endTurn(stop());
+        expect(c.finalText).toBe('{"answer":"pong"}');
+        expect(c.text).toBe('narration more {"answer":"pong"}');
+        c.handle(note({ sessionUpdate: 'tool_call', toolCallId: 't3', title: 'late' }));
+        expect(c.finalText, 'a tool_call outside a turn changes nothing').toBe('{"answer":"pong"}');
+        c.startTurn();
+        expect(c.finalText).toBe('');
+    });
+
     it('pre-turn text matching preTurnNoise is dropped; other text still warns', () => {
         const c = new Collector();
         c.preTurnNoise = [/^\[MODE_UPDATE\] \S+$/];

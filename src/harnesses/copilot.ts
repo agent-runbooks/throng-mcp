@@ -20,22 +20,4 @@ export const copilot: HarnessDefinition = {
             ? { configOptions: [{ id: 'allow_all', value: 'on' }] }
             : { env: { COPILOT_ALLOW_ALL: 'false' } },
     continueViaLoad: true,
-    // Copilot refuses stdio servers in session requests but takes them from this flag.
-    mcpServerArgs: servers => [
-        '--additional-mcp-config',
-        JSON.stringify({
-            mcpServers: Object.fromEntries(
-                servers.map(({ name, command, args, env }) => [
-                    name,
-                    {
-                        type: 'local',
-                        command,
-                        args,
-                        env: Object.fromEntries(env.map(e => [e.name, e.value])),
-                        tools: ['*'],
-                    },
-                ])
-            ),
-        }),
-    ],
 };

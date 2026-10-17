@@ -40,8 +40,8 @@ export interface PermissionDecision {
 export type Decide = (request: RequestPermissionRequest, signal: AbortSignal) => Promise<Outcome>;
 
 export interface PermissionBridge {
-    /** `knownTitle`: the title an earlier `tool_call` / `tool_call_update` gave the same `toolCallId`. */
-    answer(request: RequestPermissionRequest, knownTitle?: string): Promise<RequestPermissionResponse>;
+    /** Answers through the decider, or `cancelled` once the bridge is cancelled. */
+    answer(request: RequestPermissionRequest): Promise<RequestPermissionResponse>;
     /** Answers every pending request `cancelled` (DESIGN §4.2 cancel path); later requests too. */
     cancelAll(): void;
 }
@@ -220,22 +220,6 @@ export function deciderFor(answers: PermissionAnswers, opts: DeciderOptions): De
     }
 }
 
-const namesThrongResult = (title: string | null | undefined): boolean =>
-    !!title && title.includes('throng_result') && title.includes('submit_result');
-
-/**
- * A request for throng's own `submit_result` (DESIGN §6); titles differ per harness, e.g. `mcp.throng_result.submit_result`.
- * `knownTitle` is the title of the same `toolCallId` from an earlier update: Copilot's request says only `submit_result`.
- */
-export function isThrongResultCall(toolCall: RequestPermissionRequest['toolCall'], knownTitle?: string): boolean {
-    return namesThrongResult(toolCall.title) || namesThrongResult(knownTitle);
-}
-
-/** `allow_once` for our own submit_result under every setting; `undefined` → the answers decide. */
-function allowOwnTool(request: RequestPermissionRequest, knownTitle: string | undefined): Outcome | undefined {
-    return isThrongResultCall(request.toolCall, knownTitle) ? pick(request, 'allow_once') : undefined;
-}
-
 export function createPermissionBridge(
     onDecision: (decision: PermissionDecision) => void,
     decide: Decide
@@ -253,9 +237,9 @@ export function createPermissionBridge(
     };
 
     return {
-        async answer(request, knownTitle) {
-            let outcome = controller.signal.aborted ? CANCELLED : allowOwnTool(request, knownTitle);
-            if (!outcome) {
+        async answer(request) {
+            let outcome = CANCELLED;
+            if (!controller.signal.aborted) {
                 let settle!: (outcome: Outcome) => void;
                 const cancelled = new Promise<Outcome>(resolve => (settle = resolve));
                 pending.add(settle);

@@ -7,7 +7,6 @@ import {
     deciderFor,
     type Elicitation,
     elicits,
-    isThrongResultCall,
     type PermissionDecision,
     resolvePermissions,
 } from './permissions.ts';
@@ -19,7 +18,6 @@ function request(
     return { sessionId: 's', toolCall, options };
 }
 
-const submitCall = { toolCallId: 't9', title: 'mcp.throng_result.submit_result', kind: 'other' } as const;
 const deny = deciderFor('deny', { elicitationTimeoutMs: 1000 });
 const fullOptions: RequestPermissionRequest['options'] = [
     { optionId: 'always', name: 'Always', kind: 'allow_always' },
@@ -164,59 +162,17 @@ describe('permissions', () => {
         expect(decisions).toStrictEqual([{ title: 'write notes.txt', kind: 'edit', choice: 'cancelled' }]);
     });
 
-    it('isThrongResultCall: by title substrings, codex and claude spellings', () => {
-        expect(isThrongResultCall(submitCall)).toBe(true);
-        expect(isThrongResultCall({ toolCallId: 't', title: 'mcp__throng_result__submit_result' })).toBe(true);
-        expect(isThrongResultCall({ toolCallId: 't', title: 'mcp.other.submit_result' })).toBe(false);
-        expect(isThrongResultCall({ toolCallId: 't', title: 'mcp.throng_result.other' })).toBe(false);
-        expect(isThrongResultCall({ toolCallId: 't' })).toBe(false);
-    });
-
-    it('isThrongResultCall: the same rule on the title an earlier tool_call gave the call (Copilot)', () => {
-        const bare = { toolCallId: 't', title: 'submit_result' };
-        expect(isThrongResultCall(bare)).toBe(false);
-        expect(isThrongResultCall(bare, 'throng_result-submit_result')).toBe(true);
-        expect(isThrongResultCall({ toolCallId: 't' }, 'throng_result-submit_result')).toBe(true);
-        expect(isThrongResultCall(bare, 'other-submit_result')).toBe(false);
-        expect(isThrongResultCall(submitCall, 'run ls')).toBe(true);
-    });
-
-    it('the bridge allows our submit_result once by its known title; without it the answers decide', async () => {
-        const bridge = createPermissionBridge(() => undefined, deny);
-        const bare = request(onceOptions, { toolCallId: 't3', title: 'submit_result', kind: 'other' });
-        expect(await bridge.answer(bare, 'throng_result-submit_result')).toStrictEqual({
-            outcome: { outcome: 'selected', optionId: 'ok' },
-        });
-        expect(await bridge.answer(bare)).toStrictEqual({ outcome: { outcome: 'selected', optionId: 'no' } });
-    });
-
-    it('our submit_result is allowed once before the answers; other tools still rejected', async () => {
+    it('approves nothing by itself: a request shaped like the old submit_result goes to the answers', async () => {
         const decisions: PermissionDecision[] = [];
         const bridge = createPermissionBridge(d => decisions.push(d), deny);
-        expect(await bridge.answer(request(onceOptions, submitCall))).toStrictEqual({
-            outcome: { outcome: 'selected', optionId: 'ok' },
+        const submitLike = request(onceOptions, {
+            toolCallId: 't9',
+            title: 'mcp__throng_result__submit_result',
+            kind: 'other',
+            rawInput: { result: { answer: 'pong' } },
         });
-        expect(await bridge.answer(request(onceOptions))).toStrictEqual({
-            outcome: { outcome: 'selected', optionId: 'no' },
-        });
-        expect(decisions).toStrictEqual([
-            { title: 'mcp.throng_result.submit_result', kind: 'other', choice: 'ok' },
-            { title: 'write notes.txt', kind: 'edit', choice: 'no' },
-        ]);
-    });
-
-    it('our submit_result without an allow_once option → the answers decide, never allow_always', async () => {
-        const bridge = createPermissionBridge(() => undefined, deny);
-        const answer = await bridge.answer(
-            request(
-                [
-                    { optionId: 'always', name: 'Always', kind: 'allow_always' },
-                    { optionId: 'no', name: 'Reject', kind: 'reject_once' },
-                ],
-                submitCall
-            )
-        );
-        expect(answer).toStrictEqual({ outcome: { outcome: 'selected', optionId: 'no' } });
+        expect(await bridge.answer(submitLike)).toStrictEqual({ outcome: { outcome: 'selected', optionId: 'no' } });
+        expect(decisions).toStrictEqual([{ title: 'mcp__throng_result__submit_result', kind: 'other', choice: 'no' }]);
     });
 
     it('cancelAll answers a pending request cancelled, and every later one', async () => {
@@ -472,13 +428,14 @@ describe('permissions', () => {
             expect(elicitation.asked).toHaveLength(0);
         });
 
-        it('our submit_result is allowed before the answers, without asking', async () => {
+        it('a request shaped like the old submit_result is asked about like any other', async () => {
             const elicitation = fakeElicitation(() => Promise.resolve({ action: 'decline' }));
             const bridge = createPermissionBridge(() => undefined, decideWith(elicitation));
-            expect(await bridge.answer(request(onceOptions, submitCall))).toStrictEqual({
-                outcome: { outcome: 'selected', optionId: 'ok' },
+            const submitLike = { toolCallId: 't9', title: 'mcp__throng_result__submit_result', kind: 'other' } as const;
+            expect(await bridge.answer(request(onceOptions, submitLike))).toStrictEqual({
+                outcome: { outcome: 'selected', optionId: 'no' },
             });
-            expect(elicitation.asked).toHaveLength(0);
+            expect(elicitation.asked).toHaveLength(1);
         });
 
         it("cancelAll aborts the pending ask's signal and answers cancelled", async () => {
