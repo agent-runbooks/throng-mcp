@@ -1,11 +1,11 @@
 ---
 id: THRONG-33
-title: 'Recognise throng''s own submit_result by exact title, kind and rawInput shape'
-status: Done
+title: 'Structured output from the final message, without the throng_result MCP server'
+status: In Progress
 assignee:
   - '@nodge'
 created_date: '2026-10-14 19:48'
-updated_date: '2026-10-17 10:21'
+updated_date: '2026-10-17 10:42'
 labels: []
 milestone: m-3
 dependencies: []
@@ -17,90 +17,126 @@ ordinal: 31000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-DESIGN §5 answers a request_permission for throng's own submit_result allow_once under every setting. `isThrongResultCall` (src/permissions.ts) recognises it when the request title, or the title an earlier tool_call / tool_call_update gave the same toolCallId (src/run.ts `toolTitles`, added in THRONG-23), contains the substrings `throng_result` and `submit_result`. Several harnesses put model-written text into those titles: the shell request title is the command verbatim on Claude (claude-agent-acp 0.86.0), OpenCode 1.18.34 (also its `external_directory` request, kind other) and Gemini 0.61–0.63 (also its edit/write titles); Copilot 1.0.96 shell titles are written by the model; codex-acp 2.1.1 titles the command tool_call with the command text. So a model under harness_mode ask + permission_answers deny or elicit (e.g. steered by prompt injection in repo content) can run `echo throng_result submit_result; <anything>` and get it auto-approved, with no human asked under elicit. Shipped in 0.7.0. Investigation 2026-10-13 read the adapter sources, no real-harness runs. Facts per harness (submit request title / kind / rawInput): claude `mcp__throng_result__submit_result` / other / {result}; codex 2.1.1 no title / execute / none, earlier tool_call `mcp.throng_result.submit_result`; opencode `throng_result_submit_result` / other / {}; cursor `throng_result-submit_result: submit_result` / other / null; copilot `submit_result` / other / {result}, earlier tool_call `throng_result-submit_result`; gemini 0.61 `submit_result (throng_result MCP Server)` / other / none; gemini 0.62+ `submit_result(result: <full result>)` / other / none (no server name, cannot be told apart from other kind-other tools whose title the model writes, so it stays unrecognised). Shell requests carry kind execute everywhere and rawInput.command where rawInput exists.
+Structured output (DESIGN §6) went through a stdio MCP server `throng_result` with one tool, `submit_result`, and throng answered its permission request `allow_once` under every setting. Recognising that request had to rely on titles, which several harnesses fill with model-written text: the shell request title is the command on Claude, OpenCode and Gemini, a model-written description on Copilot, and the command text sits on the Codex `tool_call`. Under `harness_mode: ask` + `permission_answers: deny` (or `elicit`) a model could run `echo throng_result submit_result; <anything>` and get it auto-approved (shipped in 0.7.0). The first fix on this branch matched exact per-harness title forms, which still depends on each adapter's presentation, cannot recognise Gemini CLI 0.62+ (no server name in the title), misses custom harnesses and needs Copilot-specific launch args (`mcpServerArgs`). The maintainer (nodge, 2026-10-17) chose to take the result from the agent's final message instead: the prompt carries the schema and asks for the final message as JSON, throng parses and validates it with ajv, and the existing corrective prompts handle a missing or invalid result. No MCP server, no tool, no permission request, so throng auto-approves nothing. Decision record: decision-11.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [x] #1 A permission request whose title or earlier tool_call title contains `throng_result` and `submit_result` only as part of model-written text (shell command, Copilot shell description, OpenCode external_directory, Gemini edit/write title) is not auto-allowed: it goes to permission_answers
-- [x] #2 throng's submit_result is still auto-allowed under every setting for the request shapes of claude, codex 2.1.1, opencode, cursor, copilot and gemini 0.61 listed in the description
-- [x] #3 A request that names submit_result but is not recognised is logged as a warning (title, kind), so a changed adapter format is diagnosable; the answer is unchanged
-- [x] #4 Unit tests cover each harness's real submit shape and spoof cases per harness (shell with matching title, exact-form shell title, Copilot shell retitled, codex command whose tool_call title names the tool); the fake agent's codex-like submit request follows codex-acp 2.1.1 (tool_call titled `mcp.throng_result.submit_result`, then a request without title, kind execute)
-- [x] #5 DESIGN §5 recognition sentence and docs/harnesses.md updated: adapter versions read, submit request shape per harness, Gemini 0.62+ submit not recognised under ask
-- [ ] #6 Maintainer smoke: run_thronglet with a schema under harness_mode ask + permission_answers deny returns structured on claude, codex, opencode, cursor and copilot
+- [ ] #1 With `schema`, the prompt asks for the final message as one JSON value matching the schema and carries the schema verbatim; no MCP server is passed to the harness (session requests carry `mcpServers: []`, no launch args for it)
+- [ ] #2 The result is taken from the final message of the turn (text after the last tool call): the whole message as JSON, else its last fenced code block; it is validated with ajv as before and returned as `structured` without `text`
+- [ ] #3 No JSON in the final message → corrective prompt, after 2 `structured_missing`; JSON that fails the schema → corrective prompt with the ajv errors, after 2 `structured_invalid`; both failures carry `text` and `session_id` as before
+- [ ] #4 throng answers no permission request on its own: every request goes to permission_answers (the submit_result recognition, its title tracking and `HarnessDefinition.mcpServerArgs` are gone)
+- [ ] #5 submit-tool and its build entry are removed; the package still runs a `schema` run on the fake agent from the unpacked tarball (scripts/pack.test.ts)
+- [ ] #6 Tests through the fake agent cover: valid JSON, fenced JSON after narration, narration before a tool call ignored, invalid then valid after a corrective prompt, never valid → structured_missing / structured_invalid, under ask + deny with no permission request involved
+- [ ] #7 DESIGN (§3 empty_result comment, §4.1, §5, §6, §9 layout and build), docs/harnesses.md, docs/configuration.md, docs/development.md (smoke), skills/throng/SKILL.md and README describe the new mechanism
+- [ ] #8 Maintainer smoke: run_thronglet with a schema returns structured on claude, codex, opencode, gemini, cursor and copilot, under harness_mode ask + permission_answers deny
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [x] #1 Went through the runbook-task-cycle; report spot-checked
-- [x] #2 Gates green: pnpm typecheck && pnpm test
-- [x] #3 DESIGN.md updated if an external contract (DESIGN §3) changed
+- [ ] #1 Went through the runbook-task-cycle; report spot-checked
+- [ ] #2 Gates green: pnpm typecheck && pnpm test
+- [ ] #3 DESIGN.md updated if an external contract (DESIGN §3) changed
 <!-- DOD:END -->
 
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
-# THRONG-33: recognise throng's own submit_result by exact title, kind and rawInput shape
+# THRONG-33 (rescoped): structured output from the final message, without the throng_result MCP server
 
 ## Why
 
-DESIGN §5: a `session/request_permission` for throng's own `submit_result` (§6) is answered `allow_once` under every permission setting, before `permission_answers` apply. Today `isThrongResultCall` in `src/permissions.ts` recognises it when the request's `toolCall.title`, or the title an earlier `tool_call` / `tool_call_update` gave the same `toolCallId` (`toolTitles` in `src/run.ts`, passed as `knownTitle`), contains the substrings `throng_result` and `submit_result`.
+Structured output (DESIGN §6) has gone through a stdio MCP server `throng_result` (`src/structured/submit-tool.ts`) with one tool, `submit_result`. throng answers its permission request `allow_once` under every setting, recognised by the request title (the first commits on this branch match exact per-harness title forms in `src/permissions.ts`). Titles carry model-written text on several harnesses, so that recognition can be spoofed, and it can't cover Gemini CLI 0.62+ or custom harnesses. The maintainer decided (backlog decision-11): take the result from the agent's final message and drop the MCP server entirely. throng then auto-approves no permission request at all.
 
-Several harnesses put model-written text into those titles, so under `harness_mode: ask` + `permission_answers: deny` (or `elicit`, where the human is skipped) a model can run `echo throng_result submit_result; <anything>` and get it auto-approved. This is a security fix.
+The branch `throng-33` already holds the exact-title work (commits 37ad5b0..d0c572d). This task removes it along with the submit tool. Don't keep any of it "just in case".
 
-## Facts per harness (read from adapter sources on 2026-10-13, no real runs)
+## The new mechanism (DESIGN §6, to be rewritten)
 
-Request for throng's submit tool (`title` / `kind` / `rawInput`):
+1. **Prompt.** `buildPrompt(task, schema?)` in `src/prompt.ts`: with a schema, after the task append a result-format paragraph and the schema verbatim, pretty-printed (`JSON.stringify(schema, null, 2)`). Wording, roughly:
+   "Result format: end the turn with a final message that is only one JSON value matching the JSON Schema below. No text before or after it, though a ```json fence around it is fine. That JSON, not your prose, is returned to the caller."
+   Then the schema. Keep `EXECUTOR_PREFIX` as is.
+2. **Final message.** The text of the turn after its last `tool_call`. Add this to `Collector` (`src/acp/collector.ts`), e.g. a `finalText` getter: reset on every `tool_call` update inside a turn and on `startTurn`, appended to like `text`. `text` keeps meaning the whole turn's agent text. It is still what failures and non-schema runs return.
+3. **Parse** (new function in `src/structured/validate.ts`, unit-tested there):
+   - the trimmed final message parses as JSON: that value;
+   - otherwise, the content of its **last** fenced code block (```` ``` ```` with any info string, e.g. `json`), if that parses: that value;
+   - otherwise: no result.
 
-| harness | submit request | earlier `tool_call` title for the same id |
-|---|---|---|
-| claude (claude-agent-acp 0.86.0) | `mcp__throng_result__submit_result` / `other` / `{result}` | same |
-| codex (codex-acp 2.1.1) | **no title** / `execute` / **none** | `mcp.throng_result.submit_result` (kind `execute`, rawInput `{server, tool, arguments}`) |
-| opencode (1.18.34) | `throng_result_submit_result` / `other` / `{}` | same |
-| cursor (2026.10.01) | `throng_result-submit_result: submit_result` / `other` / `null` | — |
-| copilot (1.0.96) | `submit_result` / `other` / `{result}` | `throng_result-submit_result` |
-| gemini 0.61 | `submit_result (throng_result MCP Server)` / `other` / none | same |
-| gemini 0.62+ | `submit_result(result: <full result text>)` / `other` / none | same |
+   Return a discriminated union, e.g. `{ kind: 'ok', result } | { kind: 'missing' } | { kind: 'invalid', errors: string }`. `invalid` means the JSON parsed but ajv rejected it. Reuse the existing ajv compile and dialect logic (`compileSchema`, the error formatting submit-tool used) and keep their tests. Delete what only the tool needed: `toolInputSchema`, `SubmitState`, `$defs` hoisting if nothing else uses it.
+4. **Corrective prompts** (`buildCorrectivePrompt` in `src/prompt.ts`), same loop and `MAX_CORRECTIVE_PROMPTS = 2` in `src/run.ts`, same stop reasons:
+   - missing: "Your final message was not a JSON value. Reply with only the JSON value matching the JSON Schema from the task."
+   - invalid: "Your JSON does not match the schema: <ajv errors>. Reply with only the corrected JSON value."
 
-Requests the model can shape:
-- Shell requests have kind `execute` on every harness. Their title is the command verbatim on claude, opencode, gemini (and probably cursor); written by the model on copilot. rawInput carries `command` on claude (`{command, description?, …}`), codex (`{command, cwd}`), opencode (`{command}`), copilot (`{command}`); gemini never sends rawInput; cursor's is not recorded.
-- codex: a command approval request has a fixed title (`Run command`, `Read file`, …), but its `tool_call` for the same id is titled with the command text.
-- opencode: a command touching directories outside the workspace first sends an `external_directory` request: title = the command, kind `other`, rawInput `{command, directories, patterns}`.
-- gemini: edit/write request titles contain model text (path, first 30 chars of old/new strings), kind `edit`, no rawInput.
-- gemini 0.62+'s submit title has no server name and embeds the result text; it cannot be told apart from another kind-`other` tool whose title the model writes. It stays unrecognised (decided by the maintainer's session: fails closed; users run schema on gemini under `harness_mode: auto`).
+   After the last corrective turn: `structured_missing` ("agent's final message held no JSON after 2 corrective prompts") or `structured_invalid` ("last result does not match the schema: <errors>"). Both carry `text` and `session_id` exactly as today.
+5. **Success:** payload `structured` = the value, no `text`. Today's rule stays: a turn with a valid result is never `empty_result`. A turn with no agent text and a schema is `missing`, so it gets a corrective prompt.
+6. Applies to `run_thronglet` and to `send_message` turns with their own `schema`, as today.
 
-## What to change
+## What to remove
 
-1. `src/permissions.ts`: replace the substring rule. A request is throng's submit when all hold:
-   - `rawInput` is `undefined`/`null`, or a plain object (not an array) whose keys are all `result` (an empty object passes);
-   - and either
-     - the request's own `title` is one of the exact forms below and its `kind` is not `execute`; or
-     - the request's own `title` is absent or exactly `submit_result`, and `knownTitle` is one of the exact forms (kind not checked on this path: codex sends `execute`).
-   - Exact forms, one per harness, each with a short comment naming the harness: `mcp__throng_result__submit_result` (claude), `mcp.throng_result.submit_result` (codex, via the earlier tool_call), `throng_result_submit_result` (opencode), `throng_result-submit_result: submit_result` (cursor), `throng_result-submit_result` (copilot, via the earlier tool_call), `submit_result (throng_result MCP Server)` (gemini ≤ 0.61).
-   - Keep `isThrongResultCall(toolCall, knownTitle?)` as the entry point (run.ts uses it for the progress line and the bridge uses it in `allowOwnTool`). The sticky rule in `run.ts` `onUpdate` ("once a title marks the call as ours, later titles don't replace it") must test the known title alone against the exact forms; expose a small helper for that rather than calling `isThrongResultCall` with a fake toolCall if that reads cleaner. Update the doc comments on `toolTitles`, `isThrongResultCall` and anything else that describes the old substring rule.
-2. Diagnostics: when a request is not recognised but its own title or `knownTitle` contains `submit_result`, `log.warn` once per request with title, known title and kind (e.g. `'permission request names submit_result but does not match throng_result's known forms; permission_answers decide'`). It changes nothing about the answer. This is the server log (`src/log.ts`), not the run's `warnings`.
-3. Tests (vitest, next to the code, no LLMs):
-   - `src/permissions.test.ts`: each harness's real submit shape from the table above is recognised (gemini 0.62+ is not); spoof cases are rejected: claude Bash `{title: 'echo throng_result submit_result; rm -rf x', kind: 'execute', rawInput: {command: …}}`, claude Bash whose command is exactly `mcp__throng_result__submit_result`, opencode `external_directory` (kind `other`, title = command containing both words, rawInput `{command, directories, patterns}`), gemini shell with title exactly `submit_result (throng_result MCP Server)` and kind `execute` and no rawInput, gemini edit title containing both words (kind `edit`, no rawInput), cursor shell with title exactly the cursor form and kind `execute`, copilot shell whose request title and known title are model text (kind `execute`, rawInput `{command}`) including known title exactly `throng_result-submit_result`, codex command request (title `Run command`, kind `execute`, rawInput `{command, cwd}`) whose known title is `echo mcp.throng_result.submit_result`. Update the existing substring tests to the new rule. Test the warn log fires for an unrecognised request naming `submit_result` and not for an unrelated one.
-   - `test/fake-agent`: the generic (non-copilot) `submit-ask` request follows codex-acp 2.1.1: a `tool_call` for `t3` titled `mcp.throng_result.submit_result`, kind `execute`, rawInput `{server: 'throng_result', tool: 'submit_result', arguments: {…}}`, then `request_permission` for `t3` with `kind: 'execute'`, `status: 'pending'`, no title, no rawInput. Update the comment in `test/fake-agent/index.ts` describing scenarios. Existing tests using `submit-ask` (`src/run.test.ts`, others found by grep) must still pass.
-   - One end-to-end spoof through the fake agent under `deny_all` (ask + deny): a shell request whose titles name throng's tool is rejected, e.g. extend the copilot `copilot-permission` scenario with an opt-in env (same mechanism as `FAKE_TOOL_TITLE`) to set its shell `tool_call`/request title, and assert the run sees the rejection. Keep new fake-agent knobs opt-in so other tests are untouched.
-4. Docs:
-   - `docs/DESIGN.md` §5: the recognition sentence ("It is recognised by its title, or by the title an earlier …") becomes the new rule in one or two sentences: exact per-harness forms of the request title (kind not `execute`) or, for a request without a title or titled only `submit_result`, of the earlier `tool_call` title; rawInput absent or only `result`; anything else goes to `permission_answers` and is logged.
-   - `docs/harnesses.md`: per harness section, one line with the permission request shape of throng's submit tool from the table (Copilot and Cursor already have one; check and align). Note in the Gemini section that from 0.62 the submit request title is `submit_result(result: …)` with no server name, so under `harness_mode: ask` throng does not recognise it and `permission_answers` decide; use `harness_mode: auto` for runs with a schema. Where a section names an adapter version that is older than the one these facts were read from (claude-agent-acp 0.86.0, codex-acp 2.1.1), say the submit-request facts were read from that version's source on 2026-10-13; don't restate other facts.
+- `src/structured/submit-tool.ts` and `submit-tool.test.ts`. `RunContext.submitTool` and its plumbing: `src/mcp.ts`, `src/mcp/tools.ts`, `test/fake-harness.ts`. The second tsdown entry in `tsdown.config.ts` and its comment. `readSubmitState`, the per-run temp dir (`structuredDir`, schema.json, result.json) and its cleanup in `src/run.ts`, unless something else still needs a temp dir (it shouldn't).
+- Injecting MCP servers: session requests send `mcpServers: []`.
+- `HarnessDefinition.mcpServerArgs` (`src/harnesses/types.ts`), Copilot's implementation (`src/harnesses/copilot.ts`) and the `serverArgs` / `sessionServers` logic in `run.ts`. The Copilot `allow_all` / `COPILOT_ALLOW_ALL` handling stays.
+- In `src/permissions.ts`: `THRONG_RESULT_TITLES`, `isThrongResultTitle`, `isSubmitInput`, `isThrongResultCall`, `allowOwnTool`, the warn log, and the `knownTitle` parameter of `PermissionBridge.answer`. The bridge answers every request through `decide`, except the existing aborted → `cancelled` path. In `src/run.ts`: `toolTitles` and its upkeep. The progress line `permission: <title>` is now shown for every request when `toHuman`.
+- Fake agent (`test/fake-agent/agent.ts`, `index.ts`): the throng_result MCP client, `submit()`, reading servers from `--additional-mcp-config` (only throng_result used it), and scenarios `submit-*`, `copilot-submit-*`, plus the `FAKE_TOOL_TITLE` / `FAKE_TOOL_RETITLE` knobs if nothing else uses them. Replace them with final-message scenarios, opt-in like the others. Suggested names: `json-valid`, `json-fenced` (narration, then a fenced block), `json-after-tool` (text, a `tool_call`, then the JSON as the final message, so the earlier text must be ignored), `json-invalid-then-valid` (schema-invalid JSON, then valid on the next prompt), `json-missing` (prose only, every turn), `json-invalid-always`. Keep `FAKE_SUBMIT` (renamed if you like) as the override of the valid value, since the smoke-like tests and `scripts/pack.test.ts` use `{file, content}`-shaped values. Update the scenario comment block in `index.ts`. The `FakeCall` log's `mcpServers` field can stay, and tests should assert it is empty for schema runs.
+
+## Tests
+
+vitest, next to the code, no LLMs. Update or replace every test that used the removed scenarios (`src/run.test.ts`, `src/harnesses/copilot.test.ts`, `scripts/pack.test.ts`, `scripts/smoke/smoke.test.ts`, others found by grep). Cover:
+- parse: whole-message JSON, fenced, last of several fences, prose without JSON, broken JSON, JSON plus trailing prose (missing), schema errors;
+- run level: valid result → `structured` without `text`;
+- run level: JSON after a tool call with earlier narration;
+- run level: invalid then valid within the corrective budget;
+- run level: never valid → `structured_missing` / `structured_invalid` with `text`, `session_id` and usage summed over turns, as the existing tests check;
+- run level: schema runs pass no MCP servers;
+- a schema run under `ask` + `deny` (e.g. Copilot `deny_all`) returns `structured` with no permission request;
+- a permission request titled like the old tool (`mcp__throng_result__submit_result`, kind `other`, rawInput `{result}`) is now rejected under deny: the bridge approves nothing by itself;
+- `scripts/pack.test.ts` still runs a `schema` run from the unpacked tarball on the fake agent, and the tarball no longer contains `dist/structured/submit-tool.js`;
+- the prompt builder: the schema verbatim in the prompt, the corrective prompt texts.
+
+## Docs
+
+- `docs/DESIGN.md`:
+  - §3 `empty_result` comment: "without a structured result" instead of "without submit_result".
+  - §4 file list: drop `submit-tool.ts`, describe `prompt.ts` and `validate.ts` truthfully.
+  - §4.1: remove `mcpServerArgs` from the `HarnessDefinition` listing and its prose paragraph.
+  - §5: replace the `submit_result` recognition paragraph with one sentence: throng approves no request by itself, every request goes to the answers.
+  - §6: rewrite to the mechanism above, keeping the ajv dialect paragraph.
+  - §9: one tsdown entry, no submit tool path, pack test wording.
+  - Fake-agent scenario list at §9.
+  - Anything else `grep -n "submit\|throng_result\|mcpServerArgs" docs/DESIGN.md` finds.
+- `docs/harnesses.md`:
+  - remove the per-harness "permission request for throng's submit tool" lines added on this branch;
+  - Copilot: keep the fact that it refuses stdio MCP servers from `session/new` and that `--additional-mcp-config` works, but drop throng's use of it and the "two titles" bullet;
+  - Cursor: keep "MCP stdio servers from `session/new` work" without the submit-title clause;
+  - Gemini: drop the 0.62+ note about `harness_mode: auto` for schema runs;
+  - the trust paragraph's mention of submit_result can go.
+- `docs/configuration.md` line ~126: remove the `submit_result` sentence. Optionally say structured output involves no permission request. Line ~137: drop "throng's `submit_result` included".
+- `docs/development.md`:
+  - build section: one entry, no submit tool path;
+  - smoke: orphan list without `submit-tool`;
+  - the Copilot ask + deny schema step (~line 140): now expects `structured` with no permission request for it.
+- `scripts/smoke/smoke.ts`: drop the submit-tool orphan pattern and its comment. The schema prompt must not tell the agent to "submit". It asks for the result as described by the schema.
+- `skills/throng/SKILL.md` "Structured output": the schema goes into the prompt and the agent's final message must be JSON matching it. The prompt still need not repeat the schema. Keep the corrective-prompt and error-code text accurate.
+- README: check the structured-output mentions still read right.
+- `src/harnesses/gemini.ts` comment about trust mentions submit_result: reword. Trust is still needed for `yolo`.
+- Prose style: no semicolons in prose you write (docs, comments, prompts, messages). Use separate sentences.
 
 ## Do not touch
 
-- DESIGN §3 contracts (tool input/output, `ErrorCode`), `HarnessDefinition`, the Worker interface, harness definitions in `src/harnesses/*.ts`.
-- Permission semantics beyond recognition: `deciderFor`, elicitation, `allow_once`-only, `cancelAll`.
-- `backlog/`, `.changeset/`, README.
+- DESIGN §3 tool input/output shapes and `ErrorCode` values. `schema`, `structured`, `structured_missing` and `structured_invalid` stay as they are, only their descriptions change.
+- Permission semantics other than removing the own-tool path: `deciderFor`, elicitation, `allow_once`-only, `cancelAll`.
+- Harness definitions other than Copilot's `mcpServerArgs` removal.
+- `backlog/`, `.changeset/`, `CHANGELOG.md`.
 
 ## Acceptance criteria (from the task)
 
-1. A permission request whose title or earlier tool_call title contains `throng_result` and `submit_result` only as part of model-written text (shell command, Copilot shell description, OpenCode external_directory, Gemini edit/write title) is not auto-allowed: it goes to permission_answers.
-2. throng's submit_result is still auto-allowed under every setting for the request shapes of claude, codex 2.1.1, opencode, cursor, copilot and gemini 0.61 listed above.
-3. A request that names submit_result but is not recognised is logged as a warning (title, kind); the answer is unchanged.
-4. Unit tests cover each harness's real submit shape and the spoof cases; the fake agent's codex-like submit request follows codex-acp 2.1.1.
-5. DESIGN §5 recognition sentence and docs/harnesses.md updated.
-6. (Maintainer smoke, outside the run.)
+1. With `schema`, the prompt asks for the final message as one JSON value matching the schema and carries the schema verbatim. No MCP server is passed to the harness (session requests carry `mcpServers: []`, and there are no launch args for one).
+2. The result is taken from the final message of the turn (text after the last tool call): the whole message as JSON, else its last fenced code block. It is validated with ajv as before and returned as `structured` without `text`.
+3. No JSON in the final message → corrective prompt, after 2 `structured_missing`. JSON that fails the schema → corrective prompt with the ajv errors, after 2 `structured_invalid`. Both failures carry `text` and `session_id` as before.
+4. throng answers no permission request on its own: every request goes to `permission_answers`. The `submit_result` recognition, its title tracking and `HarnessDefinition.mcpServerArgs` are gone.
+5. submit-tool and its build entry are removed. The package still runs a `schema` run on the fake agent from the unpacked tarball (`scripts/pack.test.ts`).
+6. Tests through the fake agent cover: valid JSON, fenced JSON after narration, narration before a tool call ignored, invalid then valid after a corrective prompt, never valid → `structured_missing` / `structured_invalid`, and a run under `ask` + `deny` with no permission request involved.
+7. DESIGN (§3 `empty_result` comment, §4.1, §5, §6, §9 layout and build), `docs/harnesses.md`, `docs/configuration.md`, `docs/development.md` (smoke), `skills/throng/SKILL.md` and README describe the new mechanism.
+8. (Maintainer smoke, outside the run.)
 
 Gates: `pnpm typecheck && pnpm lint && pnpm test`.
 <!-- SECTION:PLAN:END -->
@@ -113,6 +149,8 @@ Runbook run 20261014-throng-33 ended ready: Opus coder, checks green, Opus revie
 Code review (xhigh) on the branch, 2026-10-17: fixed the warn text (title, kind or input differ) and added input_keys to it; docs/configuration.md no longer says submit_result is allowed under every setting (names the harnesses, Gemini 0.62+ and custom harnesses go to permission_answers); changeset wording limited to confirmed exposure; copilot spoof test mocks log.warn. Left for the maintainer: an extra key next to `result` makes a real submit unrecognised (schema has no additionalProperties:false); Gemini 0.61 form forgeable through a user MCP tool with a `command` argument; codex standalone approval (two parallel submits) not recognised; codex-acp 1.x request shape unverified. Gates: typecheck 0, lint 0, vitest 438/438.
 
 2026-10-17: moved to Done by the maintainer (nodge). AC #6 (maintainer smoke) left unchecked: no smoke result recorded in this session.
+
+2026-10-17: scope changed by the maintainer (nodge): drop the throng_result MCP server, take the structured result from the final message (decision-11). The exact-title recognition from the first commits on this branch is removed by this work. Reopened In Progress.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
