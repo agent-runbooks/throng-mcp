@@ -1,11 +1,11 @@
 ---
 id: THRONG-33
 title: 'Structured output from the final message, without the throng_result MCP server'
-status: Review
+status: Done
 assignee:
   - '@nodge'
 created_date: '2026-10-14 19:48'
-updated_date: '2026-10-17 11:43'
+updated_date: '2026-10-17 11:57'
 labels: []
 milestone: m-3
 dependencies: []
@@ -157,6 +157,8 @@ Runbook run 20261017-throng-33 ended ready. Opus coder. Reviews: Opus 2 findings
 Smoke by the main session, 2026-10-17, on the branch (adapters: claude-agent-acp 0.91.0, codex-acp 2.2.2, opencode 1.19.2). codex/gpt-6-luna --schema under auto: PASS structured {file: pong.txt, content: pong}, PASS pong.txt, PASS send_message, no corrective prompt. codex under deny_all with a prompt that writes no file: PASS structured, no permission request, no corrective prompt (FAIL pong.txt expected). opencode/openrouter/z-ai/glm-5.3-flash: the same two runs, the same results. claude not run: the adapter answered "OAuth token revoked. Please log in again", which needs the maintainer's login. gemini, cursor and copilot are not installed on this machine. AC #8 still open for claude, gemini, cursor and copilot.
 
 Smoke by the main session, 2026-10-17, after the maintainer logged in again: claude/sonnet (claude-agent-acp 0.91.0) --schema under auto: PASS structured, PASS pong.txt, PASS send_message, no corrective prompt. Under deny_all with a prompt that writes no file: PASS structured, no permission request, no corrective prompt (FAIL pong.txt expected). AC #8 still open for gemini, cursor and copilot (not installed here).
+
+2026-10-17: schema probe by the main session, a medium 2020-12 schema ($defs, enums, pattern, nested object, additionalProperties false) on a code-review task, 3 runs each: codex/gpt-6-luna 3/3 valid, claude/haiku 3/3 valid, no corrective prompt in any run. Moved to Done by the maintainer (nodge). AC #8 left unchecked: gemini, cursor and copilot were not smoked (not installed here). claude, codex and opencode passed.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
