@@ -5,7 +5,7 @@ status: Review
 assignee:
   - '@nodge'
 created_date: '2026-10-14 19:48'
-updated_date: '2026-10-17 11:34'
+updated_date: '2026-10-17 11:43'
 labels: []
 milestone: m-3
 dependencies: []
@@ -155,6 +155,8 @@ Code review (xhigh) on the branch, 2026-10-17: fixed the warn text (title, kind 
 Runbook run 20261017-throng-33 ended ready. Opus coder. Reviews: Opus 2 findings, Codex 1. Triage marked 3 to fix: b1 an empty fenced block broke the choice of the last block (regex now lets the closing fence start a line, two literal repro tests), a1 the send_message schema test did not check session/resume (fake agent logs resume servers, test asserts mcpServers: []), a2 DESIGN §4.2 resume params. Round 2 fixed a stale FakeCall comment (v1). Polish touched comments and test titles only. Spot-checked by the main session: run.ts reads parseResult(collector.finalText) per turn, both corrective branches and error texts, mcpServers: [] on new and resume, onPermission without own-tool path. permissions.ts has no own-tool recognition left. submit-tool.ts and its test are deleted, and tsdown has one entry. DESIGN §6 and the skill text match the code. The only remaining throng_result mentions are regression tests that a request shaped like the old tool now goes to the answers. Gates re-run: typecheck 0, lint 0, vitest 416/416. Changeset replaced: .changeset/structured-from-final-message.md (minor). AC #8 waits on the maintainer smoke.
 
 Smoke by the main session, 2026-10-17, on the branch (adapters: claude-agent-acp 0.91.0, codex-acp 2.2.2, opencode 1.19.2). codex/gpt-6-luna --schema under auto: PASS structured {file: pong.txt, content: pong}, PASS pong.txt, PASS send_message, no corrective prompt. codex under deny_all with a prompt that writes no file: PASS structured, no permission request, no corrective prompt (FAIL pong.txt expected). opencode/openrouter/z-ai/glm-5.3-flash: the same two runs, the same results. claude not run: the adapter answered "OAuth token revoked. Please log in again", which needs the maintainer's login. gemini, cursor and copilot are not installed on this machine. AC #8 still open for claude, gemini, cursor and copilot.
+
+Smoke by the main session, 2026-10-17, after the maintainer logged in again: claude/sonnet (claude-agent-acp 0.91.0) --schema under auto: PASS structured, PASS pong.txt, PASS send_message, no corrective prompt. Under deny_all with a prompt that writes no file: PASS structured, no permission request, no corrective prompt (FAIL pong.txt expected). AC #8 still open for gemini, cursor and copilot (not installed here).
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
