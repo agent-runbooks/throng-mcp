@@ -18,7 +18,7 @@ export const schemaField = z
     })
     .optional()
     .describe(
-        'JSON Schema (draft-07 or 2020-12) for structured output: the agent submits a matching result, returned as `structured` instead of `text`'
+        'JSON Schema (draft-07 or 2020-12) for structured output: the agent ends with a matching JSON value as its final message, returned as `structured` instead of `text`'
     );
 export const timeoutField = z
     .number()

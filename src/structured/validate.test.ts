@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileSchema, toolInputSchema } from './validate.ts';
+import { compileSchema, parseResult } from './validate.ts';
 
 const body = { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'] };
 
@@ -74,39 +74,76 @@ describe('compileSchema', () => {
     });
 });
 
-describe('toolInputSchema', () => {
-    it('wraps the schema under a required `result`, drops $schema', () => {
-        expect(toolInputSchema({ $schema: 'https://json-schema.org/draft/2020-12/schema', ...body })).toStrictEqual({
-            type: 'object',
-            properties: { result: body },
-            required: ['result'],
+describe('parseResult', () => {
+    const compiled = compileSchema(body);
+    const fence = (json: string, info = 'json') => `\`\`\`${info}\n${json}\n\`\`\``;
+
+    it('the whole message as JSON, surrounding whitespace aside', () => {
+        expect(parseResult('{"answer":"pong"}', compiled)).toStrictEqual({ kind: 'ok', result: { answer: 'pong' } });
+        expect(parseResult('\n  {\n  "answer": "pong"\n}\n', compiled)).toStrictEqual({
+            kind: 'ok',
+            result: { answer: 'pong' },
         });
     });
 
-    it('hoists $defs and definitions to the root, so the wrapper resolves the refs', () => {
-        const defs = { name: { type: 'string' } };
-        const legacy = { tag: { type: 'number' } };
-        const schema = {
-            type: 'object',
-            properties: { a: { $ref: '#/$defs/name' }, b: { $ref: '#/definitions/tag' } },
-            $defs: defs,
-            definitions: legacy,
-        };
-        const wrapped = toolInputSchema(schema);
-        expect(wrapped).toStrictEqual({
-            type: 'object',
-            properties: { result: { type: 'object', properties: schema.properties } },
-            required: ['result'],
-            $defs: defs,
-            definitions: legacy,
+    it('a fenced block after narration, any info string or none', () => {
+        const json = '{"answer": "pong"}';
+        for (const info of ['json', '', 'JSON5', 'text']) {
+            expect(parseResult(`Here it is.\n\n${fence(json, info)}\n`, compiled), info).toStrictEqual({
+                kind: 'ok',
+                result: { answer: 'pong' },
+            });
+        }
+        expect(parseResult(fence(json), compiled), 'the message is only the fence').toStrictEqual({
+            kind: 'ok',
+            result: { answer: 'pong' },
         });
-        expect(schema.$defs, 'input not mutated').toBe(defs);
+    });
 
-        const compiled = compileSchema(wrapped);
-        expect(compiled.validate({ result: { a: 'x', b: 1 } })).toStrictEqual({ ok: true });
-        expect(compiled.validate({ result: { a: 1, b: 1 } })).toStrictEqual({
-            ok: false,
-            errors: 'result/result/a must be string',
+    it('of several fenced blocks, the last one counts', () => {
+        const message = `First try:\n${fence('{"answer": "draft"}')}\nFinal:\n${fence('{"answer": "pong"}')}`;
+        expect(parseResult(message, compiled)).toStrictEqual({ kind: 'ok', result: { answer: 'pong' } });
+        const brokenLast = `${fence('{"answer": "pong"}')}\nand\n${fence('{"answer": ')}`;
+        expect(parseResult(brokenLast, compiled), 'an earlier block is not a fallback').toStrictEqual({
+            kind: 'missing',
         });
+    });
+
+    it('a block with no content lines counts as a block', () => {
+        const emptyLast = '```json\n{"answer":"draft"}\n```\n\n```json\n```';
+        expect(parseResult(emptyLast, compiled), 'an empty last block hides no earlier one').toStrictEqual({
+            kind: 'missing',
+        });
+        const emptyFirst = '```text\n```\n\n```json\n{"answer":"final"}\n```';
+        expect(parseResult(emptyFirst, compiled), 'its closing fence opens no block').toStrictEqual({
+            kind: 'ok',
+            result: { answer: 'final' },
+        });
+    });
+
+    it('prose, broken JSON, JSON with trailing prose, an empty message → missing', () => {
+        expect(parseResult('Done, the answer is pong.', compiled)).toStrictEqual({ kind: 'missing' });
+        expect(parseResult('{"answer": "pong"', compiled)).toStrictEqual({ kind: 'missing' });
+        expect(parseResult('{"answer": "pong"}\nHope that helps!', compiled)).toStrictEqual({ kind: 'missing' });
+        expect(parseResult('', compiled)).toStrictEqual({ kind: 'missing' });
+        expect(parseResult(fence(''), compiled)).toStrictEqual({ kind: 'missing' });
+    });
+
+    it('JSON the schema rejects → invalid with the ajv errors', () => {
+        expect(parseResult('{"answer": 1}', compiled)).toStrictEqual({
+            kind: 'invalid',
+            errors: 'result/answer must be string',
+        });
+        expect(parseResult(`Result:\n${fence('{}')}`, compiled)).toStrictEqual({
+            kind: 'invalid',
+            errors: "result must have required property 'answer'",
+        });
+    });
+
+    it('any JSON value, null included, is checked against the schema', () => {
+        expect(parseResult('null', compiled)).toStrictEqual({ kind: 'invalid', errors: 'result must be object' });
+        const nullable = compileSchema({ type: 'null' });
+        expect(parseResult('null', nullable)).toStrictEqual({ kind: 'ok', result: null });
+        expect(parseResult('[1, 2]', compileSchema({ type: 'array' }))).toStrictEqual({ kind: 'ok', result: [1, 2] });
     });
 });

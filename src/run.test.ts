@@ -23,7 +23,7 @@ import { log } from './log.ts';
 import { createProgress, type ProgressNotification } from './mcp/progress.ts';
 import type { Elicitation } from './permissions.ts';
 import { noProgress, type Progress } from './progress.ts';
-import { EXECUTOR_PREFIX } from './prompt.ts';
+import { buildCorrectivePrompt, EXECUTOR_PREFIX } from './prompt.ts';
 import { runThronglet } from './mcp/tools/run-thronglet.ts';
 import { sendMessage } from './mcp/tools/send-message.ts';
 import { SessionRegistry } from './registry.ts';
@@ -31,7 +31,6 @@ import type { RunContext, RunOutcome } from './run.ts';
 import { Semaphore } from './semaphore.ts';
 import { type SessionRecord, writeSessionRecord } from './sessions.ts';
 import { type FakeCall, type FakeScenario, readFakeCalls } from '../test/fake-agent/index.ts';
-import { submitTool } from '../test/fake-harness.ts';
 
 const root = mkdtempSync(join(tmpdir(), 'throng-run-'));
 const fakeAgent = fileURLToPath(new URL('../test/fake-agent/agent.ts', import.meta.url));
@@ -111,7 +110,6 @@ function makeCtx(loaded: LoadedConfig, overrides: Partial<RunContext> = {}): Run
         progress: noProgress,
         env,
         cacheDir: mkdtempSync(join(root, 'cache-')),
-        submitTool,
         cancelGraceMs: 1000,
         exitGraceMs: 300,
         ...overrides,
@@ -149,32 +147,13 @@ function recordingProgress(): RecordingProgress {
     };
 }
 
-/** The schema the fake agent's submit-* scenarios are written against. */
-const SUBMIT_SCHEMA = {
+/** The schema the fake agent's json-* scenarios are written against. */
+const RESULT_SCHEMA = {
     type: 'object',
     properties: { answer: { type: 'string' } },
     required: ['answer'],
     additionalProperties: false,
 };
-
-/** Runs `fn` with TMPDIR pointed at a fresh dir, where the run's structured-output temp dir lands. */
-async function inTmp<T>(fn: () => Promise<T>): Promise<{ result: T; tmp: string }> {
-    const tmp = mkdtempSync(join(root, 'tmp-'));
-    const saved = process.env.TMPDIR;
-    process.env.TMPDIR = tmp;
-    try {
-        return { result: await fn(), tmp };
-    } finally {
-        if (saved === undefined) delete process.env.TMPDIR;
-        else process.env.TMPDIR = saved;
-    }
-}
-
-/** The run's temp dir is removed and no submit-tool (its argv carries the dir) is left running. */
-function expectStructuredGone(tmp: string): void {
-    expect(readdirSync(tmp).filter(name => name.startsWith('throng-'))).toStrictEqual([]);
-    expect(tagAlive(tmp), 'submit-tool still running').toBe(false);
-}
 
 const input = (agent: string, extra: Record<string, unknown> = {}) => ({
     agent,
@@ -239,75 +218,102 @@ describe('runThronglet', () => {
         expect(nope.session_id?.startsWith('fake-')).toBe(true);
     });
 
-    it('schema: a valid submit_result → structured, no text', async () => {
-        const { loaded, tag } = fakeClaude('submit-valid');
-        const { result, tmp } = await inTmp(() =>
-            runThronglet(input('claude/fake-small', { schema: SUBMIT_SCHEMA }), makeCtx(loaded))
-        );
-        const payload = ok(result);
+    it('schema: a final message that is only JSON → structured, no text, no MCP servers in the session request', async () => {
+        const callLog = join(mkdtempSync(join(root, 'calls-')), 'calls.jsonl');
+        const { loaded, tag } = fakeClaude('json-valid', '', { FAKE_CALL_LOG: callLog });
+        const payload = ok(await runThronglet(input('claude/fake-small', { schema: RESULT_SCHEMA }), makeCtx(loaded)));
         expect(payload.structured).toStrictEqual({ answer: 'pong' });
         expect('text' in payload, JSON.stringify(payload)).toBe(false);
         expect(payload.stop_reason).toBe('end_turn');
         expect(payload.warnings).toBe(undefined);
+        const calls = readFakeCalls(callLog);
+        expect(calls.filter(c => c.event === 'new')).toStrictEqual([{ event: 'new', mcpServers: [] }]);
+        const start = calls.find(c => c.event === 'start');
+        expect(start?.event === 'start' && start.argv, 'no launch args added').toStrictEqual([`--tag=${tag}`]);
+        expect(
+            calls.filter(c => c.event === 'prompt'),
+            'one turn'
+        ).toHaveLength(1);
         expect(tagAlive(tag), 'adapter still running').toBe(false);
-        expectStructuredGone(tmp);
     });
 
-    it('schema: a request_permission for submit_result is allowed under auto → structured', async () => {
-        const { loaded } = fakeClaude('submit-ask');
-        const { result, tmp } = await inTmp(() =>
-            runThronglet(input('claude/fake-small', { schema: SUBMIT_SCHEMA }), makeCtx(loaded))
-        );
-        expect(ok(result).structured).toStrictEqual({ answer: 'pong' });
-        expectStructuredGone(tmp);
-    });
-
-    it('schema: a rejected submit_result fixed within the turn → structured, one turn', async () => {
-        const { loaded } = fakeClaude('submit-invalid-then-valid');
-        const { result, tmp } = await inTmp(() =>
-            runThronglet(input('claude/fake-small', { schema: SUBMIT_SCHEMA }), makeCtx(loaded))
-        );
-        const payload = ok(result);
+    it('schema: JSON in a fenced block after narration → structured', async () => {
+        const { loaded } = fakeClaude('json-fenced');
+        const payload = ok(await runThronglet(input('claude/fake-small', { schema: RESULT_SCHEMA }), makeCtx(loaded)));
         expect(payload.structured).toStrictEqual({ answer: 'pong' });
         expect('text' in payload).toBe(false);
-        expect(payload.usage).toStrictEqual({ input_tokens: 10, output_tokens: 5 });
-        expectStructuredGone(tmp);
     });
 
-    it('schema: never submitted → structured_missing after 2 corrective prompts', async () => {
-        const { loaded, tag } = fakeClaude('submit-missing');
-        const { result, tmp } = await inTmp(() =>
-            runThronglet(input('claude/fake-small', { schema: SUBMIT_SCHEMA }), makeCtx(loaded))
-        );
+    it('schema: the narration before the last tool call is not part of the final message', async () => {
+        const { loaded } = fakeClaude('json-after-tool');
+        const payload = ok(await runThronglet(input('claude/fake-small', { schema: RESULT_SCHEMA }), makeCtx(loaded)));
+        expect(payload.structured).toStrictEqual({ answer: 'pong' });
+        expect(payload.usage).toStrictEqual({ input_tokens: 10, output_tokens: 5 });
+    });
+
+    it('schema: invalid JSON, then a corrective prompt with the ajv errors → structured, usage of both turns', async () => {
+        const { loaded } = fakeClaude('json-invalid-then-valid');
+        const payload = ok(await runThronglet(input('claude/fake-small', { schema: RESULT_SCHEMA }), makeCtx(loaded)));
+        expect(payload.structured).toStrictEqual({ answer: 'pong' });
+        expect('text' in payload).toBe(false);
+        expect(payload.usage).toStrictEqual({ input_tokens: 20, output_tokens: 10 });
+    });
+
+    it('schema: no JSON in any final message → structured_missing after 2 corrective prompts', async () => {
+        const { loaded, tag } = fakeClaude('json-missing');
+        const result = await runThronglet(input('claude/fake-small', { schema: RESULT_SCHEMA }), makeCtx(loaded));
         const payload = failed(result, 'structured_missing');
-        expect(payload.message).toBe('agent did not call submit_result after 2 corrective prompts');
-        expect(payload.text).toBe('turn 3');
+        expect(payload.message).toBe("agent's final message held no JSON after 2 corrective prompts");
+        expect(payload.text).toBe(`turn 3: ${buildCorrectivePrompt({ kind: 'missing' })}`);
         expect(payload.session_id?.startsWith('fake-')).toBe(true);
         expect(payload.usage).toStrictEqual({ input_tokens: 30, output_tokens: 15 });
         expect(tagAlive(tag), 'adapter still running').toBe(false);
-        expectStructuredGone(tmp);
     });
 
-    it('schema: always rejected → structured_invalid with the ajv errors', async () => {
-        const { loaded } = fakeClaude('submit-invalid-always');
-        const { result, tmp } = await inTmp(() =>
-            runThronglet(input('claude/fake-small', { schema: SUBMIT_SCHEMA }), makeCtx(loaded))
-        );
+    it('schema: JSON that never matches → structured_invalid with the ajv errors', async () => {
+        const { loaded } = fakeClaude('json-invalid-always');
+        const result = await runThronglet(input('claude/fake-small', { schema: RESULT_SCHEMA }), makeCtx(loaded));
         const payload = failed(result, 'structured_invalid');
-        expect(payload.message).toBe('last submit_result rejected: result/answer must be string');
-        expect(payload.text).toBe('turn 3');
+        expect(payload.message).toBe('last result does not match the schema: result/answer must be string');
+        expect(payload.text).toBe('turn 3{"answer":1}');
         expect(payload.session_id?.startsWith('fake-')).toBe(true);
-        expectStructuredGone(tmp);
+        expect(payload.usage).toStrictEqual({ input_tokens: 30, output_tokens: 15 });
     });
 
-    it('schema: the temp dir is removed after a timeout', async () => {
-        const { loaded, tag } = fakeClaude('hang');
-        const { result, tmp } = await inTmp(() =>
-            runThronglet(input('claude/fake-small', { schema: SUBMIT_SCHEMA, timeout_s: 1 }), makeCtx(loaded))
-        );
-        failed(result, 'timeout');
-        expect(tagAlive(tag), 'adapter still running').toBe(false);
-        expectStructuredGone(tmp);
+    it('schema: a non-correctable stop is not re-prompted', async () => {
+        const { loaded } = fakeClaude('refuse');
+        const result = await runThronglet(input('claude/fake-small', { schema: RESULT_SCHEMA }), makeCtx(loaded));
+        const payload = failed(result, 'refusal');
+        expect(payload.usage).toStrictEqual({ input_tokens: 10, output_tokens: 5 });
+    });
+
+    it('schema under ask + deny: structured, with no permission request involved', async () => {
+        const info = vi.spyOn(log, 'info');
+        try {
+            const { loaded } = fakeClaude('json-valid', 'permissions: deny_all');
+            const payload = ok(
+                await runThronglet(input('claude/fake-small', { schema: RESULT_SCHEMA }), makeCtx(loaded))
+            );
+            expect(payload.structured).toStrictEqual({ answer: 'pong' });
+            expect(info).not.toHaveBeenCalledWith('permission', expect.anything());
+        } finally {
+            info.mockRestore();
+        }
+    });
+
+    it('a request shaped like the old submit_result is not approved by throng: deny rejects it', async () => {
+        const info = vi.spyOn(log, 'info');
+        try {
+            const { loaded } = fakeClaude('submit-like-ask', 'permissions: deny_all');
+            const payload = ok(await runThronglet(input('claude/fake-small'), makeCtx(loaded)));
+            expect(payload.text).toBe('rejected');
+            expect(info).toHaveBeenCalledWith(
+                'permission',
+                expect.objectContaining({ title: 'mcp__throng_result__submit_result', choice: 'decline' })
+            );
+        } finally {
+            info.mockRestore();
+        }
     });
 
     it('unknown harness → harness_unavailable', async () => {
@@ -1031,19 +1037,18 @@ describe('sendMessage', () => {
         expect(tagAlive(deep.tag)).toBe(false);
     });
 
-    it('schema: the submit_result server is injected into session/resume too', async () => {
-        const { loaded, tag } = fakeClaude('submit-valid');
+    it('schema on send_message: structured from the resumed turn, no MCP servers', async () => {
+        const callLog = join(mkdtempSync(join(root, 'calls-')), 'calls.jsonl');
+        const { loaded, tag } = fakeClaude('json-after-tool', '', { FAKE_CALL_LOG: callLog });
         const ctx = makeCtx(loaded);
         await record(ctx, 'fake-a');
-        const { result, tmp } = await inTmp(() =>
-            sendMessage({ session_id: 'fake-a', prompt: 'x', schema: SUBMIT_SCHEMA }, ctx)
-        );
-        const payload = ok(result);
+        const payload = ok(await sendMessage({ session_id: 'fake-a', prompt: 'x', schema: RESULT_SCHEMA }, ctx));
         expect(payload.session_id).toBe('fake-a');
         expect(payload.structured).toStrictEqual({ answer: 'pong' });
         expect('text' in payload).toBe(false);
+        const resumes = readFakeCalls(callLog).filter(c => c.event === 'resume');
+        expect(resumes).toStrictEqual([{ event: 'resume', mcpServers: [] }]);
         expect(tagAlive(tag), 'adapter still running').toBe(false);
-        expectStructuredGone(tmp);
     });
 });
 

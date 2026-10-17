@@ -40,8 +40,8 @@ export interface PermissionDecision {
 export type Decide = (request: RequestPermissionRequest, signal: AbortSignal) => Promise<Outcome>;
 
 export interface PermissionBridge {
-    /** `knownTitle`: the title an earlier `tool_call` / `tool_call_update` gave the same `toolCallId`. */
-    answer(request: RequestPermissionRequest, knownTitle?: string): Promise<RequestPermissionResponse>;
+    /** Answers through the decider, or `cancelled` once the bridge is cancelled. */
+    answer(request: RequestPermissionRequest): Promise<RequestPermissionResponse>;
     /** Answers every pending request `cancelled` (DESIGN §4.2 cancel path); later requests too. */
     cancelAll(): void;
 }
@@ -220,61 +220,6 @@ export function deciderFor(answers: PermissionAnswers, opts: DeciderOptions): De
     }
 }
 
-/** The titles throng's submit_result gets, one form per harness (docs/harnesses.md), compared exactly. */
-const THRONG_RESULT_TITLES: ReadonlySet<string> = new Set([
-    'mcp__throng_result__submit_result', // claude
-    'mcp.throng_result.submit_result', // codex, on the earlier tool_call
-    'throng_result_submit_result', // opencode
-    'throng_result-submit_result: submit_result', // cursor
-    'throng_result-submit_result', // copilot, on the earlier tool_call
-    'submit_result (throng_result MCP Server)', // gemini up to 0.61 (0.62+ titles it `submit_result(result: …)`)
-]);
-
-/** Whether `title` is one of `THRONG_RESULT_TITLES`. */
-export const isThrongResultTitle = (title: string | null | undefined): boolean =>
-    title != null && THRONG_RESULT_TITLES.has(title);
-
-/** submit_result's own input: absent, or an object with no key but `result`. A shell request carries `command`. */
-function isSubmitInput(rawInput: unknown): boolean {
-    if (rawInput === undefined || rawInput === null) return true;
-    if (typeof rawInput !== 'object' || Array.isArray(rawInput)) return false;
-    return Object.keys(rawInput).every(key => key === 'result');
-}
-
-/**
- * A request for throng's own `submit_result` (DESIGN §5, §6). `knownTitle` is the title an earlier `tool_call` /
- * `tool_call_update` gave the same `toolCallId`. It counts only for a request without a title (codex) or titled only
- * `submit_result` (copilot), and then the kind is not checked: codex marks the request `execute`.
- */
-export function isThrongResultCall(toolCall: RequestPermissionRequest['toolCall'], knownTitle?: string): boolean {
-    if (!isSubmitInput(toolCall.rawInput)) return false;
-    const { title } = toolCall;
-    if (isThrongResultTitle(title)) return toolCall.kind !== 'execute';
-    return (title == null || title === 'submit_result') && isThrongResultTitle(knownTitle);
-}
-
-/** `allow_once` for our own submit_result under every setting; `undefined` → the answers decide. */
-function allowOwnTool(request: RequestPermissionRequest, knownTitle: string | undefined): Outcome | undefined {
-    const { toolCall } = request;
-    if (isThrongResultCall(toolCall, knownTitle)) return pick(request, 'allow_once');
-    if (toolCall.title?.includes('submit_result') || knownTitle?.includes('submit_result')) {
-        const { rawInput } = toolCall;
-        log.warn(
-            "permission request names submit_result but its title, kind or input differ from throng_result's known forms, so permission_answers decide",
-            {
-                title: toolCall.title,
-                known_title: knownTitle,
-                kind: toolCall.kind,
-                input_keys:
-                    rawInput !== null && typeof rawInput === 'object' && !Array.isArray(rawInput)
-                        ? Object.keys(rawInput)
-                        : undefined,
-            }
-        );
-    }
-    return undefined;
-}
-
 export function createPermissionBridge(
     onDecision: (decision: PermissionDecision) => void,
     decide: Decide
@@ -292,9 +237,9 @@ export function createPermissionBridge(
     };
 
     return {
-        async answer(request, knownTitle) {
-            let outcome = controller.signal.aborted ? CANCELLED : allowOwnTool(request, knownTitle);
-            if (!outcome) {
+        async answer(request) {
+            let outcome = CANCELLED;
+            if (!controller.signal.aborted) {
                 let settle!: (outcome: Outcome) => void;
                 const cancelled = new Promise<Outcome>(resolve => (settle = resolve));
                 pending.add(settle);

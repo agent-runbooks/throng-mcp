@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { type FakeCall, type FakeScenario, readFakeCalls } from '../../test/fake-agent/index.ts';
-import { fakeHarness, submitTool, tagAlive } from '../../test/fake-harness.ts';
+import { fakeHarness, tagAlive } from '../../test/fake-harness.ts';
 import { type Config, DEFAULT_CONFIG, type PermissionPolicy } from '../config.ts';
 import type { JsonSchemaObject, RunFailure, RunSuccess } from '../contract.ts';
 import { listHarnesses } from '../list.ts';
@@ -28,8 +28,8 @@ const input = (agent: string, prompt = 'do the thing', schema?: JsonSchemaObject
     ...(schema ? { schema } : {}),
 });
 
-/** The schema the fake agent's submit-* scenarios are written against. */
-const SUBMIT_SCHEMA: JsonSchemaObject = {
+/** The schema the fake agent's json-* scenarios are written against. */
+const RESULT_SCHEMA: JsonSchemaObject = {
     type: 'object',
     properties: { answer: { type: 'string' } },
     required: ['answer'],
@@ -80,21 +80,13 @@ const summary = (calls: FakeCall[]) =>
         if (c.event === 'authenticate') return `authenticate ${c.methodId}`;
         if (c.event === 'new') return `new [${c.mcpServers.join(', ')}]`;
         if (c.event === 'load') return `load [${(c.mcpServers ?? []).join(', ')}]`;
+        if (c.event === 'resume') return `resume [${(c.mcpServers ?? []).join(', ')}]`;
         const r = c.resumed ? '^' : '';
         if (c.event === 'set_mode') return `${r}set_mode ${c.modeId}`;
         if (c.event === 'set_model') return `${r}set_model ${c.modelId}`;
         if (c.event === 'set_config_option') return `${r}set_config_option ${c.configId}=${String(c.value)}`;
         return `${r}prompt`;
     });
-
-/** The `--additional-mcp-config` JSON of a start line. */
-function mcpConfigOf(calls: FakeCall[]): unknown {
-    const start = calls.find(c => c.event === 'start');
-    if (start?.event !== 'start') expect.unreachable('no start');
-    const at = start.argv.indexOf('--additional-mcp-config');
-    expect(at, 'launch arg present').toBeGreaterThan(0);
-    return JSON.parse(start.argv[at + 1] ?? '') as unknown;
-}
 
 let dirs = 0;
 /** A fresh PATH dir holding executable stubs for `bins`. */
@@ -139,32 +131,6 @@ describe('copilot definition', () => {
         const levels = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
         expect(copilot.mapEffort('max', levels)).toBe('max');
         expect(copilot.mapEffort('xhigh', ['low', 'high'])).toBe(undefined);
-    });
-
-    it('mcpServerArgs: one --additional-mcp-config flag with every server as type local, env as an object', () => {
-        const args = copilot.mcpServerArgs?.([
-            {
-                name: 'throng_result',
-                command: '/usr/bin/node',
-                args: ['submit-tool.ts', '--schema', 's.json'],
-                env: [{ name: 'A', value: '1' }],
-            },
-            { name: 'other', command: 'other-mcp', args: [], env: [] },
-        ]);
-        expect(args?.[0]).toBe('--additional-mcp-config');
-        expect(args).toHaveLength(2);
-        expect(JSON.parse(args?.[1] ?? '')).toStrictEqual({
-            mcpServers: {
-                throng_result: {
-                    type: 'local',
-                    command: '/usr/bin/node',
-                    args: ['submit-tool.ts', '--schema', 's.json'],
-                    env: { A: '1' },
-                    tools: ['*'],
-                },
-                other: { type: 'local', command: 'other-mcp', args: [], env: {}, tools: ['*'] },
-            },
-        });
     });
 });
 
@@ -256,107 +222,32 @@ describe('copilot harness (fake agent)', () => {
         expect(tagAlive(tag), 'adapter still running').toBe(false);
     });
 
-    it('schema: submit_result goes in through --additional-mcp-config, session/new and session/load carry no servers', async () => {
+    it('schema: structured from the final message, no extra launch args, no servers in session/new and session/load', async () => {
         const callLog = newCallLog();
-        const { loaded } = h.fakeAs('copilot', 'copilot-submit-valid', '', { FAKE_CALL_LOG: callLog });
+        const { loaded } = h.fakeAs('copilot', 'copilot-json-valid', '', { FAKE_CALL_LOG: callLog });
         const ctx = h.makeCtx(loaded);
-        const first = ok(await runThronglet(input('copilot/fake-small', 'answer', SUBMIT_SCHEMA), ctx));
+        const first = ok(await runThronglet(input('copilot/fake-small', 'answer', RESULT_SCHEMA), ctx));
         expect(first.structured).toStrictEqual({ answer: 'pong' });
         expect(first.text).toBe(undefined);
         const firstCalls = readFakeCalls(callLog);
-        expect(summary(firstCalls).slice(0, 2)).toStrictEqual(['start --additional-mcp-config <json>', 'new []']);
-        expect(mcpConfigOf(firstCalls)).toStrictEqual({
-            mcpServers: {
-                throng_result: {
-                    type: 'local',
-                    command: process.execPath,
-                    args: [
-                        submitTool,
-                        '--schema',
-                        expect.stringMatching(/schema\.json$/),
-                        '--out',
-                        expect.stringMatching(/result\.json$/),
-                    ],
-                    env: {},
-                    tools: ['*'],
-                },
-            },
-        });
+        expect(summary(firstCalls).slice(0, 2)).toStrictEqual(['start', 'new []']);
 
         const second = ok(
-            await sendMessage({ session_id: first.session_id, prompt: 'again', schema: SUBMIT_SCHEMA }, ctx)
+            await sendMessage({ session_id: first.session_id, prompt: 'again', schema: RESULT_SCHEMA }, ctx)
         );
         expect(second.structured).toStrictEqual({ answer: 'pong' });
         const secondCalls = readFakeCalls(callLog).slice(firstCalls.length);
-        expect(summary(secondCalls).slice(0, 2)).toStrictEqual(['start --additional-mcp-config <json>', 'load []']);
+        expect(summary(secondCalls).slice(0, 2)).toStrictEqual(['start', 'load []']);
     });
 
-    it('a run without a schema adds no --additional-mcp-config', async () => {
-        const { calls } = await copilotRun('auto');
-        const start = calls[0];
-        if (start?.event !== 'start') expect.unreachable('no start');
-        expect(start.argv).not.toContain('--additional-mcp-config');
-    });
-
-    it('ask + deny: submit_result asked for under its bare name is allowed once by the title of its earlier tool_call', async () => {
+    it('schema under ask + deny: structured, with no permission request involved', async () => {
         const info = vi.spyOn(log, 'info');
         try {
-            const { outcome } = await copilotRun('deny_all', 'copilot-submit-ask', { schema: SUBMIT_SCHEMA });
+            const { outcome } = await copilotRun('deny_all', 'copilot-json-valid', { schema: RESULT_SCHEMA });
             expect(ok(outcome).structured).toStrictEqual({ answer: 'pong' });
-            expect(info).toHaveBeenCalledWith(
-                'permission',
-                expect.objectContaining({ title: 'submit_result', choice: 'allow_once' })
-            );
+            expect(info).not.toHaveBeenCalledWith('permission', expect.anything());
         } finally {
             info.mockRestore();
-        }
-    });
-
-    it('ask + deny: a later tool_call_update with the bare title does not undo the recognition', async () => {
-        const info = vi.spyOn(log, 'info');
-        try {
-            const { outcome } = await copilotRun('deny_all', 'copilot-submit-ask', {
-                schema: SUBMIT_SCHEMA,
-                agentEnv: { FAKE_TOOL_RETITLE: 'submit_result' },
-            });
-            expect(ok(outcome).structured).toStrictEqual({ answer: 'pong' });
-            expect(info).toHaveBeenCalledWith(
-                'permission',
-                expect.objectContaining({ title: 'submit_result', choice: 'allow_once' })
-            );
-        } finally {
-            info.mockRestore();
-        }
-    });
-
-    it('ask + deny: a request whose own and earlier titles both lack throng_result is rejected', async () => {
-        const { outcome } = await copilotRun('deny_all', 'copilot-submit-ask', {
-            agentEnv: { FAKE_TOOL_TITLE: 'other-submit_result' },
-        });
-        expect(ok(outcome).text).toBe('denied');
-    });
-
-    it("ask + deny: a shell command titled with the submit tool's name is rejected and logged", async () => {
-        const info = vi.spyOn(log, 'info');
-        const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
-        try {
-            for (const title of ['throng_result-submit_result', 'echo throng_result submit_result']) {
-                const { outcome } = await copilotRun('deny_all', 'copilot-permission', {
-                    agentEnv: { FAKE_TOOL_TITLE: title },
-                });
-                expect(ok(outcome).text, title).toBe('rejected');
-                expect(info).toHaveBeenCalledWith(
-                    'permission',
-                    expect.objectContaining({ title, kind: 'execute', choice: 'reject_once' })
-                );
-                expect(warn).toHaveBeenCalledWith(
-                    expect.stringContaining('submit_result'),
-                    expect.objectContaining({ title, known_title: title, kind: 'execute' })
-                );
-            }
-        } finally {
-            info.mockRestore();
-            warn.mockRestore();
         }
     });
 

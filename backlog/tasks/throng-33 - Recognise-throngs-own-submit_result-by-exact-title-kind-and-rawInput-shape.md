@@ -1,11 +1,11 @@
 ---
 id: THRONG-33
 title: 'Structured output from the final message, without the throng_result MCP server'
-status: In Progress
+status: Review
 assignee:
   - '@nodge'
 created_date: '2026-10-14 19:48'
-updated_date: '2026-10-17 10:42'
+updated_date: '2026-10-17 11:15'
 labels: []
 milestone: m-3
 dependencies: []
@@ -22,21 +22,21 @@ Structured output (DESIGN §6) went through a stdio MCP server `throng_result` w
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 With `schema`, the prompt asks for the final message as one JSON value matching the schema and carries the schema verbatim; no MCP server is passed to the harness (session requests carry `mcpServers: []`, no launch args for it)
-- [ ] #2 The result is taken from the final message of the turn (text after the last tool call): the whole message as JSON, else its last fenced code block; it is validated with ajv as before and returned as `structured` without `text`
-- [ ] #3 No JSON in the final message → corrective prompt, after 2 `structured_missing`; JSON that fails the schema → corrective prompt with the ajv errors, after 2 `structured_invalid`; both failures carry `text` and `session_id` as before
-- [ ] #4 throng answers no permission request on its own: every request goes to permission_answers (the submit_result recognition, its title tracking and `HarnessDefinition.mcpServerArgs` are gone)
-- [ ] #5 submit-tool and its build entry are removed; the package still runs a `schema` run on the fake agent from the unpacked tarball (scripts/pack.test.ts)
-- [ ] #6 Tests through the fake agent cover: valid JSON, fenced JSON after narration, narration before a tool call ignored, invalid then valid after a corrective prompt, never valid → structured_missing / structured_invalid, under ask + deny with no permission request involved
-- [ ] #7 DESIGN (§3 empty_result comment, §4.1, §5, §6, §9 layout and build), docs/harnesses.md, docs/configuration.md, docs/development.md (smoke), skills/throng/SKILL.md and README describe the new mechanism
+- [x] #1 With `schema`, the prompt asks for the final message as one JSON value matching the schema and carries the schema verbatim; no MCP server is passed to the harness (session requests carry `mcpServers: []`, no launch args for it)
+- [x] #2 The result is taken from the final message of the turn (text after the last tool call): the whole message as JSON, else its last fenced code block; it is validated with ajv as before and returned as `structured` without `text`
+- [x] #3 No JSON in the final message → corrective prompt, after 2 `structured_missing`; JSON that fails the schema → corrective prompt with the ajv errors, after 2 `structured_invalid`; both failures carry `text` and `session_id` as before
+- [x] #4 throng answers no permission request on its own: every request goes to permission_answers (the submit_result recognition, its title tracking and `HarnessDefinition.mcpServerArgs` are gone)
+- [x] #5 submit-tool and its build entry are removed; the package still runs a `schema` run on the fake agent from the unpacked tarball (scripts/pack.test.ts)
+- [x] #6 Tests through the fake agent cover: valid JSON, fenced JSON after narration, narration before a tool call ignored, invalid then valid after a corrective prompt, never valid → structured_missing / structured_invalid, under ask + deny with no permission request involved
+- [x] #7 DESIGN (§3 empty_result comment, §4.1, §5, §6, §9 layout and build), docs/harnesses.md, docs/configuration.md, docs/development.md (smoke), skills/throng/SKILL.md and README describe the new mechanism
 - [ ] #8 Maintainer smoke: run_thronglet with a schema returns structured on claude, codex, opencode, gemini, cursor and copilot, under harness_mode ask + permission_answers deny
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Went through the runbook-task-cycle; report spot-checked
-- [ ] #2 Gates green: pnpm typecheck && pnpm test
-- [ ] #3 DESIGN.md updated if an external contract (DESIGN §3) changed
+- [x] #1 Went through the runbook-task-cycle; report spot-checked
+- [x] #2 Gates green: pnpm typecheck && pnpm test
+- [x] #3 DESIGN.md updated if an external contract (DESIGN §3) changed
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -151,10 +151,12 @@ Code review (xhigh) on the branch, 2026-10-17: fixed the warn text (title, kind 
 2026-10-17: moved to Done by the maintainer (nodge). AC #6 (maintainer smoke) left unchecked: no smoke result recorded in this session.
 
 2026-10-17: scope changed by the maintainer (nodge): drop the throng_result MCP server, take the structured result from the final message (decision-11). The exact-title recognition from the first commits on this branch is removed by this work. Reopened In Progress.
+
+Runbook run 20261017-throng-33 ended ready. Opus coder. Reviews: Opus 2 findings, Codex 1. Triage marked 3 to fix: b1 an empty fenced block broke the choice of the last block (regex now lets the closing fence start a line, two literal repro tests), a1 the send_message schema test did not check session/resume (fake agent logs resume servers, test asserts mcpServers: []), a2 DESIGN §4.2 resume params. Round 2 fixed a stale FakeCall comment (v1). Polish touched comments and test titles only. Spot-checked by the main session: run.ts reads parseResult(collector.finalText) per turn, both corrective branches and error texts, mcpServers: [] on new and resume, onPermission without own-tool path. permissions.ts has no own-tool recognition left. submit-tool.ts and its test are deleted, and tsdown has one entry. DESIGN §6 and the skill text match the code. The only remaining throng_result mentions are regression tests that a request shaped like the old tool now goes to the answers. Gates re-run: typecheck 0, lint 0, vitest 416/416. Changeset replaced: .changeset/structured-from-final-message.md (minor). AC #8 waits on the maintainer smoke.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-throng recognises its own submit_result permission request by exact per-harness titles (own title with kind other than execute, or the earlier tool_call title for a request without a title or titled submit_result) and rawInput absent or only `result`, instead of two substrings anywhere in the title. Closes the auto-approval of model-written shell/edit requests under harness_mode ask (claude, codex, opencode, gemini, cursor, copilot); unrecognised requests naming submit_result are logged. Gemini 0.62+ submit stays unrecognised under ask (documented). Verified with unit and fake-agent tests (vitest 438/438), typecheck and lint; real-harness smoke pending (AC #6).
+Structured output takes the result from the agent's final message (text after the last tool call: the whole message as JSON, else its last fenced block), validated with ajv, with the same two corrective prompts and structured_missing / structured_invalid. The throng_result MCP server, submit-tool, its build entry, RunContext.submitTool, HarnessDefinition.mcpServerArgs and the own-tool permission recognition are gone, so throng approves no permission request by itself (decision-11). This closes the 0.7.0 hole where a shell command naming submit_result was auto-approved under ask + deny, and structured output now works on Gemini 0.62+ and custom harnesses. Verified with unit and fake-agent tests (vitest 416/416, pack test runs a schema run from the tarball), typecheck and lint. Real-harness smoke pending (AC #8).
 <!-- SECTION:FINAL_SUMMARY:END -->

@@ -17,11 +17,10 @@ claude mcp add --scope user throng -- node /abs/path/to/throng-mcp/src/mcp.ts
 
 ## Build and package
 
-- `pnpm build` (tsdown, config in `tsdown.config.ts`) writes `dist/mcp.js`, the bin, and `dist/structured/submit-tool.js`, spawned for `schema` runs; shared code may land in a chunk under `dist/`. The runtime libraries are `devDependencies`, bundled into `dist/`: the package has no dependencies of its own. The build also writes `dist/THIRD_PARTY_LICENSES.md`, the licenses of the bundled packages, collected from the modules that ended up in the bundle (`scripts/build/third-party-licenses.ts`); a bundled package with neither a license file nor a `license` field fails the build. `ci:build` is the same for CI; `prepack` runs it, so `pnpm pack` and `pnpm publish` always ship a fresh build. `dist/` is ignored by git, prettier and eslint.
+- `pnpm build` (tsdown, config in `tsdown.config.ts`) writes `dist/mcp.js`, the bin; shared code may land in a chunk under `dist/`. The runtime libraries are `devDependencies`, bundled into `dist/`: the package has no dependencies of its own. The build also writes `dist/THIRD_PARTY_LICENSES.md`, the licenses of the bundled packages, collected from the modules that ended up in the bundle (`scripts/build/third-party-licenses.ts`); a bundled package with neither a license file nor a `license` field fails the build. `ci:build` is the same for CI; `prepack` runs it, so `pnpm pack` and `pnpm publish` always ship a fresh build. `dist/` is ignored by git, prettier and eslint.
 - Why a build: Node refuses to strip types under `node_modules`, so the package can't ship `src/`. Development, tests and smoke keep running the sources (`node src/mcp.ts`, Node >= 22.18 or 24); the published package needs Node `^22.13 || >=24`.
 - The version from `package.json` is a JSON import, inlined at build time.
-- `src/mcp.ts` resolves the submit tool's path from its own location (`.ts` next to the sources, `.js` in `dist/`) and passes it down as `RunContext.submitTool`.
-- The tarball holds `dist/`, `skills/`, `docs/`, `README.md`, `LICENSE` and `package.json`. `pnpm pack --dry-run` lists it; `scripts/pack.test.ts` (in `pnpm test`) packs it into a temp dir, checks that list, that the packed `package.json` has no `dependencies` or `peerDependencies`, that `dist/THIRD_PARTY_LICENSES.md` names `@modelcontextprotocol/sdk` and `zod` and that `dist/` stays under 2 MB, and runs `node dist/mcp.js` from the unpacked package, with no `node_modules` anywhere, against the fake agent: `list_harnesses` and a `run_thronglet` with a `schema`.
+- The tarball holds `dist/`, `skills/`, `docs/`, `README.md`, `LICENSE` and `package.json`. `pnpm pack --dry-run` lists it; `scripts/pack.test.ts` (in `pnpm test`) packs it into a temp dir, checks that list, that the packed `package.json` has no `dependencies` or `peerDependencies`, that `dist/THIRD_PARTY_LICENSES.md` names `@modelcontextprotocol/sdk` and `zod` and that `dist/` stays under 2 MB, and runs `node dist/mcp.js` from the unpacked package, with no `node_modules` anywhere, against the fake agent: `list_harnesses` and a `run_thronglet` with a `schema`, which must return `structured`.
 
 ## Release
 
@@ -73,7 +72,7 @@ The script starts the server, prints the `list_harnesses` table (versions, model
 - `PASS: run_thronglet background accepted` / `PASS: send_message background accepted`: with `--background` only; the call answered `{session_id, state, queued}` (printed as `pending:`), and `wait_thronglet` then delivers the payload the checks above run on.
 - With `--cancel` instead of the pong.txt and follow-up checks: `PASS: run_thronglet background accepted`, `PASS: list_thronglets shows the turn running` (the row has description `smoke: ping/pong`), `PASS: cancel_thronglet cancelled the turn` (`cancelled_turn: true`), `PASS: wait_thronglet returned cancelled`, `PASS: list_thronglets shows the turn failed with cancelled`.
 - With `--steer` instead of the pong.txt and follow-up checks: `PASS: run_thronglet background accepted` (the prompt asks for `sleep 60` as one tool call, so there is a turn to interrupt), then a 10 s wait (`--steer-delay <s>` changes it) so the steer lands while the turn is busy (no tool shows a background turn's activity, and Cursor has no session to load until the turn has produced output), `PASS: send_message steer answered STEERED` (a synchronous `send_message` with `steer: true` asks for a line starting with STEERED and what the agent was doing; the payload is printed), `PASS: list_thronglets shows the session idle`.
-- `PASS: no orphans` / `FAIL: orphaned adapter processes: <pids>`: no new `claude-agent-acp`, `codex-acp`, `opencode acp`, `gemini.*--acp` (regex), `cursor-agent`, `copilot.*--acp` (regex) or `submit-tool` process is alive 12 s after the client closed (throng's shutdown of an adapter: 5 s before SIGTERM, 5 s more before SIGKILL, plus 2 s). `FAIL: cannot check orphans (…)` when `pgrep` is missing or fails.
+- `PASS: no orphans` / `FAIL: orphaned adapter processes: <pids>`: no new `claude-agent-acp`, `codex-acp`, `opencode acp`, `gemini.*--acp` (regex), `cursor-agent` or `copilot.*--acp` (regex) process is alive 12 s after the client closed (throng's shutdown of an adapter: 5 s before SIGTERM, 5 s more before SIGKILL, plus 2 s). `FAIL: cannot check orphans (…)` when `pgrep` is missing or fails.
 
 Exit code: 0 all passed; 1 a FAIL or a tool error; 2 bad usage, harness unavailable or unknown model (the valid models are printed). Server stderr is prefixed `[server]`, progress `[progress]`. The temp dir is removed on success and kept (path printed) on failure.
 
@@ -137,12 +136,11 @@ THRONG_MCP_CONFIG=/tmp/throng-auto.yaml pnpm smoke:copilot
 THRONG_MCP_CONFIG=/tmp/throng-deny.yaml pnpm smoke:copilot -- --no-follow-up \
   --prompt "Run exactly this shell command and nothing else: echo pong > pong.txt. Do not edit files any other way. Then reply done."
 
-# 3. structured output under ask + deny: Copilot asks for submit_result under its bare name, throng still answers
-#    allow_once: PASS: structured is {file: pong.txt, content: pong}, the server log has
-#    `permission title=submit_result … choice=allow_once`; the prompt writes no file, so FAIL: pong.txt not found and
-#    exit 1 are expected and do not count against the step
+# 3. structured output under ask + deny: the result comes from the final message, so no permission request is
+#    involved: PASS: structured is {file: pong.txt, content: pong}, and the server log has no `permission` line. The
+#    prompt writes no file, so FAIL: pong.txt not found and exit 1 are expected and do not count against the step
 THRONG_MCP_CONFIG=/tmp/throng-deny.yaml pnpm smoke:copilot-schema -- --no-follow-up \
-  --prompt "Do not create or edit any file and do not run any command. Submit the result with file pong.txt and content pong."
+  --prompt "Do not create or edit any file and do not run any command. The result is file pong.txt and content pong."
 
 # 4. list_harnesses (printed by any run above) shows copilot with its models; record whether `copilot login` exposes a
 #    model option (with a login from the GitHub CLI only there is none, and every run fails model_rejected)

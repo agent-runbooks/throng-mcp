@@ -112,9 +112,9 @@ describe('smoke script against the fake agent', () => {
     it('--schema: run_thronglet with the schema, structured checked', async () => {
         const { code, stdout, stderr, tag } = await smoke(
             ['claude/fake-small', '--schema', '--no-follow-up'],
-            'submit-valid',
+            'json-valid',
             bin,
-            { FAKE_SUBMIT: JSON.stringify({ file: 'pong.txt', content: 'pong' }) }
+            { FAKE_RESULT: JSON.stringify({ file: 'pong.txt', content: 'pong' }) }
         );
         expect(code, stdout + stderr).toBe(0);
         expect(stdout).toMatch(/run_thronglet agent=claude\/fake-small .* schema$/m);

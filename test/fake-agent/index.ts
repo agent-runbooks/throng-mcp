@@ -25,11 +25,13 @@ export type FakeScenario =
     | 'write-pong'
     | 'resume-memory'
     | 'steer'
-    | 'submit-valid'
-    | 'submit-invalid-then-valid'
-    | 'submit-missing'
-    | 'submit-invalid-always'
-    | 'submit-ask'
+    | 'json-valid'
+    | 'json-fenced'
+    | 'json-after-tool'
+    | 'json-invalid-then-valid'
+    | 'json-missing'
+    | 'json-invalid-always'
+    | 'submit-like-ask'
     | 'gemini'
     | 'gemini-permission'
     | 'gemini-write-pong'
@@ -41,11 +43,11 @@ export type FakeScenario =
     | 'copilot'
     | 'copilot-permission'
     | 'copilot-resume-memory'
-    | 'copilot-submit-valid'
-    | 'copilot-submit-ask';
+    | 'copilot-json-valid';
 
 // Knobs besides FAKE_SCENARIO (env of the agent process): FAKE_TURN_MS — an echo or no-resume turn takes that long
-// before answering (default 0); FAKE_MEMORY_DIR — where resume-memory and steer keep their notes; FAKE_SUBMIT — the valid submit_result (JSON);
+// before answering (default 0); FAKE_MEMORY_DIR — where resume-memory and steer keep their notes; FAKE_RESULT — the valid
+// result of the json-* scenarios (JSON);
 // FAKE_CONFIG_OPTIONS — extra `SessionConfigOption[]` (JSON) every session/new and session/resume advertises, select or
 // boolean; FAKE_CALL_LOG — a file the process appends a `FakeCall` JSON line to for its start (argv, the
 // GEMINI_CLI_TRUST_WORKSPACE it sees when set, and every PROBE_* variable it sees), every authenticate, session/load,
@@ -55,9 +57,13 @@ export type FakeScenario =
 // fails with this text (-32000).
 // steer: every turn appends its prompt to the session's notes; the session's first turn then hangs until session/cancel,
 // every later one replies `you said: <notes joined ' | '>`.
-// submit-ask: shaped like codex-acp 2.1.1, a `tool_call` titled `mcp.throng_result.submit_result` (kind `execute`,
-// rawInput `{server, tool, arguments}`), then a permission request for the same toolCallId with kind `execute`, no
-// title and no rawInput. Submits only when allowed, else replies `denied`.
+// json-*: the result as the final message, against the schema `{answer: string}` (FAKE_RESULT overrides the valid value).
+// json-valid: only the JSON. json-fenced: narration, then the JSON in a ```json fence. json-after-tool: narration, a
+// `tool_call`, then the JSON. json-invalid-then-valid: `{answer: 1}`, then the valid JSON on a later prompt that carries
+// the ajv error `result/answer must be string` (else `unexpected corrective prompt: <prompt>`). json-missing: prose
+// only, `turn <n>: <prompt without the prefix>`. json-invalid-always: `turn <n>`, a `tool_call`, then `{answer: 1}`.
+// submit-like-ask: a permission request shaped like throng's former submit tool's (title
+// `mcp__throng_result__submit_result`, kind `other`, rawInput `{result}`), then replies `allowed` or `rejected`.
 // gemini, gemini-<scenario>: shaped like Gemini CLI 0.61 in ACP mode (docs/harnesses.md), with the turn of echo or
 // <scenario>. No configOptions (FAKE_CONFIG_OPTIONS ignored); models in the session response's `models` field
 // (gemini-2.5-pro current, gemini-2.5-flash), changed by session/set_model, which accepts any string; modes default,
@@ -74,23 +80,19 @@ export type FakeScenario =
 // copilot, copilot-<scenario>: shaped like Copilot CLI 1.0.96 in ACP mode (docs/harnesses.md), with the turn of echo or
 // <scenario>. `loadSession` (session/load as for cursor-*) and no resume capability; modes and a `mode` option with URL
 // ids (`…#agent` current, `…#plan`, `…#autopilot`); an `allow_all` select option (category `permissions`, on | off,
-// default off) after the usual model and effort options. Stdio servers in session/new and session/load are dropped, as
-// Copilot refuses them; the session's servers come from the launch arg `--additional-mcp-config <json>` instead
-// (`{mcpServers: {<name>: {type: 'local', command, args, env: {NAME: value}}}}`). A permission request is skipped (the
-// tool runs) when allow_all is on or COPILOT_ALLOW_ALL=true. copilot-permission asks before a shell command, option ids
-// equal to their kinds, the request titled `List files`. With FAKE_TOOL_TITLE set, a `tool_call` for the command and
-// the request are both titled that (the model writes Copilot's shell titles). copilot-submit-ask sends a `tool_call`
-// titled FAKE_TOOL_TITLE (default `throng_result-submit_result`) and, when FAKE_TOOL_RETITLE is set, a
-// `tool_call_update` retitling it to that value, then asks for the same toolCallId titled `submit_result`, and submits
-// only when allowed, else replies `denied`.
+// default off) after the usual model and effort options. A permission request is skipped (the tool runs) when allow_all
+// is on or COPILOT_ALLOW_ALL=true. copilot-permission asks before a shell command titled `List files`, option ids equal
+// to their kinds.
 
 /**
  * One line of FAKE_CALL_LOG. `resumed`: the session came from session/resume or session/load. copilot-*: `allowAll` is
- * the COPILOT_ALLOW_ALL the process sees when set; `new` and `load` name the MCP servers the session request carried.
+ * the COPILOT_ALLOW_ALL the process sees when set. copilot-* and json-*: `new`, `resume` and `load` name the MCP
+ * servers the session request carried.
  */
 export type FakeCall =
     | { event: 'start'; argv: string[]; trustWorkspace?: string; allowAll?: string; probes?: Record<string, string> }
     | { event: 'new'; mcpServers: string[] }
+    | { event: 'resume'; mcpServers?: string[] }
     | { event: 'set_mode'; modeId: string; resumed: boolean }
     | { event: 'set_config_option'; configId: string; value: string | boolean; resumed: boolean }
     | { event: 'set_model'; modelId: string; resumed: boolean }

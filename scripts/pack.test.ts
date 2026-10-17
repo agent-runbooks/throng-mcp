@@ -51,7 +51,10 @@ it(
             .split('\n');
         expect(files.filter(file => !SHIPPED.test(file))).toStrictEqual([]);
         expect(files).toContain('package/dist/mcp.js');
-        expect(files).toContain('package/dist/structured/submit-tool.js');
+        expect(
+            files.filter(file => file.includes('submit-tool')),
+            'no submit tool'
+        ).toStrictEqual([]);
         expect(files).toContain('package/skills/throng/SKILL.md');
         expect(files).toContain('package/dist/THIRD_PARTY_LICENSES.md');
 
@@ -75,7 +78,7 @@ it(
         // `tmp` in the tag: afterAll's pkill also catches a fake agent left behind.
         const tag = `${tmp}/fake-agent`;
         const config = join(tmp, 'config.yaml');
-        writeFileSync(config, fakeClaudeConfig(tag, 'submit-valid'));
+        writeFileSync(config, fakeClaudeConfig(tag, 'json-valid'));
         const work = join(tmp, 'work');
         mkdirSync(work);
 
@@ -116,7 +119,6 @@ it(
                 },
             });
             expect(result.isError, JSON.stringify(result)).toBe(undefined);
-            // Only dist/structured/submit-tool.js, spawned from the path the entry computed, could have produced it.
             expect((payloadOf(result) as RunSuccess).structured).toStrictEqual({ answer: 'pong' });
         } finally {
             await close();

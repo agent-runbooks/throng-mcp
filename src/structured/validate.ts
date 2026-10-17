@@ -2,12 +2,9 @@ import { Ajv } from 'ajv';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import type { JsonSchemaObject } from '../contract.ts';
 
-// ajv wrapper for structured output (DESIGN §6): shared by the input check in run_thronglet and by submit-tool.
+// Structured output (DESIGN §6): ajv for run_thronglet's schema check and for the result in the agent's final message.
 
 export type Validation = { ok: true } | { ok: false; errors: string };
-
-/** What submit-tool's out file holds after a submit_result call; the last call wins. */
-export type SubmitState = { ok: true; result: unknown } | { ok: false; errors: string };
 
 export interface CompiledSchema {
     validate(value: unknown): Validation;
@@ -31,24 +28,34 @@ export function compileSchema(schema: JsonSchemaObject): CompiledSchema {
     };
 }
 
+/** The structured result of one turn. `invalid`: the JSON parsed, but the schema rejects it. */
+export type StructuredResult =
+    { kind: 'ok'; result: unknown } | { kind: 'missing' } | { kind: 'invalid'; errors: string };
+
+/** A fenced code block: the opening fence with any info string, the content, the closing fence on its own line. */
+const FENCED_BLOCK = /^[ \t]*```[^\n`]*\n([\s\S]*?)^[ \t]*```[ \t\r]*$/gm;
+
 /**
- * `submit_result`'s inputSchema: the caller's schema under `result`, its `$defs` / `definitions` hoisted to the root so
- * `#/$defs/…` and `#/definitions/…` refs keep resolving. `$schema` is dropped.
+ * The result in the agent's final message: the whole trimmed message as JSON, else the content of its last fenced
+ * code block, else none. A parsed value is then checked against `schema`.
  */
-export function toolInputSchema(schema: JsonSchemaObject): {
-    type: 'object';
-    properties: { result: JsonSchemaObject };
-    required: string[];
-    $defs?: unknown;
-    definitions?: unknown;
-} {
-    const { $defs, definitions, ...result } = schema;
-    delete result.$schema;
-    return {
-        type: 'object',
-        properties: { result },
-        required: ['result'],
-        ...($defs === undefined ? {} : { $defs }),
-        ...(definitions === undefined ? {} : { definitions }),
-    };
+export function parseResult(message: string, schema: CompiledSchema): StructuredResult {
+    let value = parseJson(message.trim());
+    if (value === undefined) {
+        const last = [...message.matchAll(FENCED_BLOCK)].at(-1);
+        if (last) value = parseJson((last[1] ?? '').trim());
+    }
+    if (value === undefined) return { kind: 'missing' };
+    const validation = schema.validate(value.json);
+    return validation.ok ? { kind: 'ok', result: value.json } : { kind: 'invalid', errors: validation.errors };
+}
+
+/** Wrapped, so that a parsed `null` differs from no JSON at all. */
+function parseJson(text: string): { json: unknown } | undefined {
+    if (!text) return undefined;
+    try {
+        return { json: JSON.parse(text) as unknown };
+    } catch {
+        return undefined;
+    }
 }

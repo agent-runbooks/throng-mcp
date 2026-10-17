@@ -28,7 +28,6 @@ How each built-in harness behaves under throng: what you will notice when you us
 - `mcpServers`: http/sse fine; stdio is recognized only when the object has no `type` field.
 - Without client capability `elicitation.form` the adapter adds `AskUserQuestion` to `disallowedTools` by itself. That's what we want.
 - Usage: `usage_update` with `cost.amount` (USD), plus `PromptResponse.usage`.
-- The permission request for throng's submit tool: title `mcp__throng_result__submit_result`, `kind: 'other'`, `rawInput: {result: …}` (read from the 0.86.0 source on 2026-10-13).
 
 ## Codex
 
@@ -38,7 +37,6 @@ How each built-in harness behaves under throng: what you will notice when you us
 - Options: `model`, `reasoning_effort` (category `thought_level`), `mode`.
 - Mode presets: `read-only` (asks the user, workspace-write sandbox), `agent` (default; approvals decided by auto_review, workspace-write), `agent-full-access` (never + danger-full-access).
 - `mcpServers`: stdio, http. Usage without cost. Env `CODEX_CONFIG` = JSON layered over config.toml.
-- The permission request for throng's submit tool has no title, no `rawInput` and `kind: 'execute'`. The `tool_call` before it for the same `toolCallId` is titled `mcp.throng_result.submit_result` (`rawInput: {server, tool, arguments}`), and throng recognises the request by that title. Read from the 2.1.1 source on 2026-10-13.
 
 ## OpenCode
 
@@ -49,7 +47,6 @@ OpenCode 1.18.x (`opencode acp`):
 - Usage with cost.
 - After an approved `edit` OpenCode calls the client's `fs/write_text_file` without checking the capability and ignores the error; it has already written the file itself. throng answers "method not found" and logs it.
 - Custom providers live in the user's `~/.config/opencode/opencode.json`; throng doesn't touch it.
-- The permission request for throng's submit tool: title `throng_result_submit_result`, `kind: 'other'`, `rawInput: {}`.
 
 ## Gemini CLI
 
@@ -69,7 +66,6 @@ Over ACP:
 - No `session/resume` (no `sessionCapabilities`). `session/load` exists, but its response does not wait for the replay (checked in the 0.63.0 source): `streamHistory` runs unawaited, so at most the first replayed `session/update` precedes the response and the rest follows it, with no marker where the replay ends. The ACP spec requires the response only after the whole replay, and Cursor's continuation through `session/load` relies on that. throng doesn't use it for Gemini (decision-10); the upstream fix is google-gemini/gemini-cli#29708.
 - Modes: `default | autoEdit | yolo | plan`. Every `set_mode` is echoed as an agent message `[MODE_UPDATE] <mode>`, listed in the definition's `preTurnNoise` ([DESIGN §4.1](DESIGN.md#41-harnesses-and-discovery)). Folder trust is on by default: in an untrusted folder `set_mode yolo` fails and no MCP servers start, those from `session/new` included. `GEMINI_CLI_TRUST_WORKSPACE=true` trusts the folder for the process.
 - `request_permission` always offers `allow_once` and `reject_once`. In mode `default` read-only tools run without asking; edits, shell and MCP tools ask.
-- The permission request for throng's submit tool: up to 0.61 titled `submit_result (throng_result MCP Server)`, `kind: 'other'`, no `rawInput`. From 0.62 the title is `submit_result(result: …)` with the result text and no server name, so under `harness_mode: ask` throng does not recognise it and `permission_answers` decide. Use `harness_mode: auto` for runs with a schema.
 - No `usage_update`, no `PromptResponse.usage`, no cost: token counts sit only in `PromptResponse._meta.quota`, which throng does not read.
 - Auth is a Gemini API key or Vertex; `session/new` fails with `-32000` when there is none. The CLI still offers Google-account sign-in, but for personal accounts the server refuses it ("This client is no longer supported for Gemini Code Assist for individuals", 2026-10-10). The OAuth terms forbid using that login from third-party software anyway, so Gemini is reached only through its own CLI.
 
@@ -92,7 +88,7 @@ Over ACP:
 - Sessions live in `~/.cursor/acp-sessions/<id>/`: `meta.json` from `session/new`, the conversation in `store.db` once a turn has produced output. Without `store.db`, `session/load` answers `-32602` "Session not found".
 - `session/new` returns `modes` (`agent` current, `plan`, `ask`), the unstable `models`, and config options `mode` and `model`. Model values carry their parameters in brackets: `default[]` (Auto), `gpt-5.4-nano[reasoning=medium]`, `claude-opus-5-5[context=300k,effort=medium,fast=false]`; `session/set_config_option` takes only a listed value and writes it to `~/.cursor/acp-config.json` (`selectedModelVariantId`). No `thought_level` option.
 - `--force` (a root flag, accepted after `acp`) auto-approves shell, MCP tools and web search. Without it they send `request_permission` (kinds `execute`, `other`, `search`, `fetch`; option ids `allow-once`, `allow-always`, `reject-once`). File edits never ask, with or without the flag.
-- MCP stdio servers from `session/new` work. The permission request for throng's submit tool is titled `throng_result-submit_result: submit_result`, `kind: 'other'`, `rawInput: null`. `cursor/create_plan` arrives only in plan mode, which throng never sets.
+- MCP stdio servers from `session/new` work. `cursor/create_plan` arrives only in plan mode, which throng never sets.
 - After its stdin closes the process exits in about 1.8 s when idle and in under 0.5 s right after a turn. In 2 of 8 smoke runs adapter processes were still alive 7 s after the client closed, for a reason not found; throng's SIGTERM and SIGKILL (5 s apart) end them either way.
 - Also written outside the sessions directory: `~/.cursor/projects/`, `~/.cursor/plans/` (plan mode), `~/Library/Caches/cursor-compile-cache/`.
 
@@ -115,8 +111,7 @@ Over ACP:
 - `session/set_config_option` with an unknown `configId`, and `session/set_model` with an unknown model, both answer success without doing anything.
 - `allow_all=on` runs a shell command without `request_permission`. With it off, a shell command (`kind: 'execute'`, the title written by the model, `rawInput.command`) and a file edit (`kind: 'edit'`, title `Create file`, `rawInput.fileName` and `diff`) ask with options `allow_once | allow_always | reject_once`, the option ids equal to the kinds; `reject_once` fails the tool call and nothing is written. The launch flags `--allow-all` / `--yolo` start the option at `on`.
 - `COPILOT_ALLOW_ALL=true` in the environment approves everything silently even with `allow_all` off (the option still reports `off`); `COPILOT_ALLOW_ALL=false` restores asking. throng sets `false` under `ask`.
-- MCP: Copilot refuses every stdio server a client passes in `session/new` (its log in `~/.copilot/logs/`: "Rejecting non-http/sse MCP server … from client"). The launch flag `--additional-mcp-config <json>` works, so throng passes its `throng_result` server there (`{"mcpServers": {"throng_result": {"type": "local", "command", "args", "env", "tools": ["*"]}}}`) and sends no servers in `session/new` or `session/load` (`mcpServerArgs`, [DESIGN §4.1](DESIGN.md#41-harnesses-and-discovery)).
-- throng's submit tool has two titles: the `tool_call` update says `throng_result-submit_result`, the permission request for the same `toolCallId` only `submit_result` (`kind: 'other'`, `rawInput: {result: …}`). throng recognises it by the exact earlier title and answers `allow_once` ([DESIGN §5](DESIGN.md#5-permissions)).
+- MCP: Copilot refuses every stdio server a client passes in `session/new` (its log in `~/.copilot/logs/`: "Rejecting non-http/sse MCP server … from client"). The launch flag `--additional-mcp-config <json>` works (`{"mcpServers": {"<name>": {"type": "local", "command", "args", "env", "tools": ["*"]}}}`). throng passes no MCP servers either way.
 - `session/load {sessionId, cwd, mcpServers}` in a fresh process replays the history (`user_message_chunk`, `tool_call`, `tool_call_update`) before it answers; the next prompt remembers the earlier turns. A session that never ran a turn answers `-32002` "Resource not found: Session <id> not found", the same as an unknown id.
 - Usage: `PromptResponse.usage` (`inputTokens`, `outputTokens`, …) and `usage_update {used, size}` without `cost`. No agent message arrives outside a turn.
 - After its stdin closes the process exits in about 0.9 s. The npm bin is a node wrapper that runs the native `…/copilot --acp`.

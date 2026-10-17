@@ -41,7 +41,7 @@ A session run by another throng server (another Claude session, a nested agent) 
 
 ## Structured output
 
-Pass `schema` (JSON Schema) when you will parse the result rather than read it. The schema reaches the agent as the input schema of its `submit_result` tool, so the prompt need not repeat it. The agent gets up to two corrective prompts; after that the call fails with `structured_missing` or `structured_invalid`, carrying `text` (what it said) and `session_id`, so a `send_message` with the correction is the next step. Keep schemas small and flat: every field is something the agent must fill.
+Pass `schema` (JSON Schema) when you will parse the result rather than read it. throng appends the schema to the prompt and asks the agent to end with a final message that is only a JSON value matching it, so the prompt need not repeat it. When that message holds no JSON, or JSON the schema rejects, the agent gets up to two corrective prompts. After that the call fails with `structured_missing` or `structured_invalid`, carrying `text` (what it said) and `session_id`, so a `send_message` with the correction is the next step. Keep schemas small and flat: every field is something the agent must fill.
 
 ## Permissions
 
