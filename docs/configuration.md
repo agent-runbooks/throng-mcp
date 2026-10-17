@@ -123,7 +123,7 @@ So `harness_mode: auto` with `permission_answers: auto` is "the harness decides 
 
 It works at the same places. At one place, `permissions` together with `harness_mode` or `permission_answers` is a config error: use one or the other.
 
-Answers are always one-time options, never "always allow" (Claude would write that rule into the project settings). throng's own `submit_result` (structured output) is allowed under every setting. Cancelling a run answers its pending requests `cancelled` and closes any open dialog.
+Answers are always one-time options, never "always allow" (Claude would write that rule into the project settings). throng's own `submit_result` (structured output) is allowed under every setting when throng recognises its permission request, which it does on Claude Code, Codex, OpenCode, Cursor CLI and Copilot CLI ([harnesses.md](harnesses.md)). On Gemini CLI 0.62 and later, and on a custom harness whose adapter titles the request some other way, `permission_answers` decide for it like for any tool, so with `harness_mode: ask` pick `allow` answers or run with `harness_mode: auto` when you pass a `schema`; the server log names such a request. Cancelling a run answers its pending requests `cancelled` and closes any open dialog.
 
 Dialogs, when they are on:
 

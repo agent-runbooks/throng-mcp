@@ -320,7 +320,21 @@ describe('permissions', () => {
                 title: 'echo throng_result submit_result',
                 known_title: undefined,
                 kind: 'execute',
+                input_keys: ['command'],
             });
+
+            warn.mockClear();
+            const extraKey = request(onceOptions, {
+                toolCallId: 't6',
+                title: 'mcp__throng_result__submit_result',
+                kind: 'other',
+                rawInput: { result: 1, note: 'x' },
+            });
+            expect(await bridge.answer(extraKey)).toStrictEqual({ outcome: { outcome: 'selected', optionId: 'no' } });
+            expect(warn).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({ title: 'mcp__throng_result__submit_result', input_keys: ['result', 'note'] })
+            );
 
             warn.mockClear();
             await bridge.answer(

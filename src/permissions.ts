@@ -258,12 +258,17 @@ function allowOwnTool(request: RequestPermissionRequest, knownTitle: string | un
     const { toolCall } = request;
     if (isThrongResultCall(toolCall, knownTitle)) return pick(request, 'allow_once');
     if (toolCall.title?.includes('submit_result') || knownTitle?.includes('submit_result')) {
+        const { rawInput } = toolCall;
         log.warn(
-            "permission request names submit_result but does not match throng_result's known forms; permission_answers decide",
+            "permission request names submit_result but its title, kind or input differ from throng_result's known forms; permission_answers decide",
             {
                 title: toolCall.title,
                 known_title: knownTitle,
                 kind: toolCall.kind,
+                input_keys:
+                    rawInput !== null && typeof rawInput === 'object' && !Array.isArray(rawInput)
+                        ? Object.keys(rawInput)
+                        : undefined,
             }
         );
     }

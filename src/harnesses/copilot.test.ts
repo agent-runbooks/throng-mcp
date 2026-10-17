@@ -338,7 +338,7 @@ describe('copilot harness (fake agent)', () => {
 
     it("ask + deny: a shell command titled with the submit tool's name is rejected and logged", async () => {
         const info = vi.spyOn(log, 'info');
-        const warn = vi.spyOn(log, 'warn');
+        const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
         try {
             for (const title of ['throng_result-submit_result', 'echo throng_result submit_result']) {
                 const { outcome } = await copilotRun('deny_all', 'copilot-permission', {
