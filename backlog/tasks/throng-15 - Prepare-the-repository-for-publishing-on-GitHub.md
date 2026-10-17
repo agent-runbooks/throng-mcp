@@ -25,7 +25,7 @@ Hygiene findings:
 - No `LICENSE` file; `package.json` has no `license`, `description`, `repository`. (`bin` / npx distribution of the server is out of scope.)
 - `README.md` Install says `git clone <this repo>`; needs the real GitHub URL.
 - The no-sandbox / auto-approve default is one sentence in the README intro; a public MCP server that spawns agents with bypass permissions needs a visible Security block near the top: no isolation, what the default policy refuses, how to switch policy.
-- The absolute path of the maintainer home-directory checkout in the notes of backlog/tasks throng-9, 11, 12, 13, 14; and "Sherpa review" (the maintainer private tool) in throng-6. Both scrubbed by the maintainer by hand before the run.
+- The absolute path of the maintainer home-directory checkout in the notes of backlog/tasks throng-9, 11, 12, 13, 14, and a review note in throng-6. Both scrubbed by the maintainer by hand before the run.
 - `data/registry.json` provenance (registry URL + snapshot date) lives only in DESIGN §4.1; the maintainer docs need one line with it.
 - `scripts/spike/concurrent-prompt.ts` is a committed spike: delete it, or keep with a one-line pointer in DESIGN.md to the finding it produced.
 
@@ -42,7 +42,7 @@ README restructure. Today README.md (320 lines) serves three audiences at once: 
 - [x] #6 Smoke, Files on disk and Development live in a maintainer document under docs/, linked from README; it names the ACP registry URL and the snapshot date of data/registry.json
 - [x] #7 Every relative link in README, docs/ and skills/throng/SKILL.md resolves to an existing file or anchor
 - [x] #8 A user can go from a fresh clone to a successful list_harnesses call using README alone
-- [x] #9 backlog/tasks/throng-6 no longer references Sherpa by name; the note reads as a maintainer review
+- [x] #9 backlog/tasks/throng-6 review note reads as a maintainer review
 - [x] #10 scripts/spike/ is either removed or referenced from DESIGN.md with the finding it produced
 - [x] #11 Gates green: pnpm typecheck && pnpm lint && pnpm test
 - [x] #12 No absolute home-directory path in any tracked file (a grep for the macOS home prefix over tracked files is empty)
@@ -112,7 +112,7 @@ Every relative link in README.md, docs/DESIGN.md, docs/development.md and skills
 7. Every relative link in README, docs/ and skills/throng/SKILL.md resolves to an existing file or anchor.
 8. A user can go from a fresh clone to a successful list_harnesses call using README alone.
 9. No absolute home-directory path in any tracked file (a grep for the macOS home prefix over tracked files is empty).
-10. (done by the maintainer) backlog/tasks/throng-6 no longer references Sherpa by name.
+10. (done by the maintainer) backlog/tasks/throng-6 review note reads as a maintainer review.
 11. scripts/spike/ is either removed or referenced from DESIGN.md with the finding it produced.
 12. Gates green: pnpm typecheck && pnpm lint && pnpm test.
 <!-- SECTION:PLAN:END -->
@@ -126,5 +126,5 @@ Runbook run .agent-runbooks/runs/20261002-throng-15 ended ready: preflight, impl
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-LICENSE (MIT) and package.json description/license/repository added; README rewritten for users (320 → 184 lines: intro, Security, Requirements, Install with the real URL and the skills CLI, Agent spec, one worked example, Configuration, Permissions, Troubleshooting, Links); per-tool contracts live only in DESIGN §3, which README links; Files on disk, Smoke and Development moved to docs/development.md with the ACP registry URL and snapshot date; scripts/spike removed (its finding already in DESIGN §3.3); backlog notes scrubbed of the home-directory path and the private tool name. Verified: gates green (typecheck, lint, 267 tests), git grep for the home prefix and for the placeholder empty, every relative link target and anchor exists (coder link check listed in the run impl.md; anchors 3-external-contract, 23-adapters, 41-harnesses-and-discovery, smoke, permissions confirmed against headings), two independent reviews with the two findings fixed and verified by a separate Opus.
+LICENSE (MIT) and package.json description/license/repository added; README rewritten for users (320 → 184 lines: intro, Security, Requirements, Install with the real URL and the skills CLI, Agent spec, one worked example, Configuration, Permissions, Troubleshooting, Links); per-tool contracts live only in DESIGN §3, which README links; Files on disk, Smoke and Development moved to docs/development.md with the ACP registry URL and snapshot date; scripts/spike removed (its finding already in DESIGN §3.3); backlog notes scrubbed of the home-directory path. Verified: gates green (typecheck, lint, 267 tests), git grep for the home prefix and for the placeholder empty, every relative link target and anchor exists (coder link check listed in the run impl.md; anchors 3-external-contract, 23-adapters, 41-harnesses-and-discovery, smoke, permissions confirmed against headings), two independent reviews with the two findings fixed and verified by a separate Opus.
 <!-- SECTION:FINAL_SUMMARY:END -->
