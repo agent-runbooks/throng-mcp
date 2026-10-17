@@ -1,11 +1,11 @@
 ---
 id: THRONG-33
 title: 'Recognise throng''s own submit_result by exact title, kind and rawInput shape'
-status: Review
+status: Done
 assignee:
   - '@nodge'
 created_date: '2026-10-14 19:48'
-updated_date: '2026-10-17 10:14'
+updated_date: '2026-10-17 10:21'
 labels: []
 milestone: m-3
 dependencies: []
@@ -111,6 +111,8 @@ Gates: `pnpm typecheck && pnpm lint && pnpm test`.
 Runbook run 20261014-throng-33 ended ready: Opus coder, checks green, Opus review 0 findings, Codex review 0 findings, polish (comments/docs wording only). Spot-checked by the main session: src/permissions.ts THRONG_RESULT_TITLES (six exact forms), isSubmitInput (absent/null or keys only `result`), isThrongResultCall (own title exact + kind not execute; known title only when the request has no title or `submit_result`), warn in allowOwnTool; run.ts sticky rule now isThrongResultTitle(known). Tests: it.each over each harness submit shape and spoofs (claude Bash with both words and exact form, opencode external_directory, gemini shell exact form and edit title, cursor shell exact form, copilot shell with known title exact, codex command with command tool_call title), gemini 0.62+ not recognised, warn log; fake-agent submit-ask now codex-acp 2.1.1 shape; copilot e2e spoof under deny_all rejected + warned. Gates re-run by the main session: typecheck 0, lint 0, vitest 438/438. DESIGN §5 sentence and docs/harnesses.md per-harness submit request lines updated. Changeset .changeset/submit-result-exact-titles.md (patch). AC #6 waits on the maintainer smoke: schema under ask + deny on claude, codex, opencode, cursor, copilot.
 
 Code review (xhigh) on the branch, 2026-10-17: fixed the warn text (title, kind or input differ) and added input_keys to it; docs/configuration.md no longer says submit_result is allowed under every setting (names the harnesses, Gemini 0.62+ and custom harnesses go to permission_answers); changeset wording limited to confirmed exposure; copilot spoof test mocks log.warn. Left for the maintainer: an extra key next to `result` makes a real submit unrecognised (schema has no additionalProperties:false); Gemini 0.61 form forgeable through a user MCP tool with a `command` argument; codex standalone approval (two parallel submits) not recognised; codex-acp 1.x request shape unverified. Gates: typecheck 0, lint 0, vitest 438/438.
+
+2026-10-17: moved to Done by the maintainer (nodge). AC #6 (maintainer smoke) left unchecked: no smoke result recorded in this session.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
