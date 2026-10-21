@@ -490,6 +490,22 @@ describe('worker', () => {
         );
     });
 
+    it('session/load failing with Authentication required → harness_unavailable, not session_not_found', async () => {
+        const spawn = fakeAgentSpawn('cursor-resume-memory');
+        tags.push(spawn.tag);
+        const err = await rejectsWith(
+            startWorker(
+                { ...spawn, cwd, depth: 0, loginHint: 'agent login' },
+                { kind: 'resume', sessionId: 'abc', cwd, mcpServers: [], allowLoad: true },
+                { onPermission: () => Promise.resolve({ outcome: { outcome: 'cancelled' } }) },
+                limits
+            ),
+            'harness_unavailable'
+        );
+        expect(err.message).toMatch(/^session\/load failed: Authentication required\. .*; log in: agent login$/);
+        expect(tagAlive(spawn.tag)).toBe(false);
+    });
+
     it('loadSession without allowLoad → session_not_found; a session/load error → session_not_found with its text', async () => {
         const failing = async (allowLoad: boolean) => {
             const spawn = fakeAgentSpawn('cursor-resume-memory');

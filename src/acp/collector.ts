@@ -6,7 +6,6 @@ import type { Usage } from '../contract.ts';
 /** `_meta.jetbrains.air.sessionFailure` of codex-acp (AIR `sessionFailure` capability); one `id` across its revisions. */
 interface SessionFailure {
     id?: string;
-    revision?: number;
     category?: string;
     severity: 'error' | 'warning';
     title: string;
@@ -22,7 +21,6 @@ export interface TurnFailure {
 interface Warning {
     text: string;
     failureId?: string;
-    revision?: number;
 }
 
 export class Collector {
@@ -117,23 +115,13 @@ export class Collector {
         const details = failure.details ? ` — ${failure.details}` : '';
         const text = `${failure.severity}${category}: ${failure.title}${details}`;
         const earlier = failure.id === undefined ? undefined : this.#warnings.find(w => w.failureId === failure.id);
-        if (!earlier) {
-            this.#warn(text, failure);
-            return;
-        }
-        // A revision older than the one shown arrived late.
-        if ((failure.revision ?? Infinity) < (earlier.revision ?? -Infinity)) return;
-        earlier.text = text;
-        if (failure.revision !== undefined) earlier.revision = failure.revision;
+        if (earlier) earlier.text = text;
+        else this.#warn(text, failure.id);
     }
 
-    #warn(text: string, failure?: SessionFailure): void {
-        if (!failure?.id && this.#warnings.some(w => w.text === text && w.failureId === undefined)) return;
-        this.#warnings.push({
-            text,
-            ...(failure?.id !== undefined ? { failureId: failure.id } : {}),
-            ...(failure?.revision !== undefined ? { revision: failure.revision } : {}),
-        });
+    #warn(text: string, failureId?: string): void {
+        if (failureId === undefined && this.#warnings.some(w => w.text === text && w.failureId === undefined)) return;
+        this.#warnings.push({ text, ...(failureId !== undefined ? { failureId } : {}) });
     }
 
     /** Agent text of the last turn. */
@@ -169,13 +157,12 @@ export class Collector {
 function sessionFailure(meta: unknown): SessionFailure | undefined {
     const raw = field(field(field(meta, 'jetbrains'), 'air'), 'sessionFailure');
     if (typeof raw !== 'object' || raw === null) return undefined;
-    const { id, revision, category, severity, title, details } = raw as Record<string, unknown>;
+    const { id, category, severity, title, details } = raw as Record<string, unknown>;
     if ((severity !== 'error' && severity !== 'warning') || typeof title !== 'string') return undefined;
     return {
         severity,
         title,
         ...(typeof id === 'string' ? { id } : {}),
-        ...(typeof revision === 'number' ? { revision } : {}),
         ...(typeof category === 'string' ? { category } : {}),
         ...(typeof details === 'string' ? { details } : {}),
     };

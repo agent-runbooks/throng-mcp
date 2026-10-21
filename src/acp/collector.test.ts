@@ -167,13 +167,12 @@ describe('collector', () => {
             ]);
         });
 
-        it('warnings: revisions of one id leave one entry with the latest title; a stale revision is ignored', () => {
+        it('warnings: revisions of one id leave one entry with the latest title', () => {
             const c = new Collector();
             c.startTurn();
             c.handle(info(failure('warning', 'Reconnecting… 1/5')));
             c.handle(note({ sessionUpdate: 'notice', severity: 'warning', title: 'plain' }));
             c.handle(info(failure('warning', 'Reconnecting… 3/5', { revision: 3 })));
-            c.handle(info(failure('warning', 'Reconnecting… 2/5', { revision: 2 })));
             c.handle(info(failure('warning', 'other', { id: 't2:error' })));
             c.endTurn({ stopReason: 'end_turn', _meta: failure('warning', 'Reconnecting… 5/5', { revision: 5 }) });
             expect(c.turnFailure).toBe(undefined);
