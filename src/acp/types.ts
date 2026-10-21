@@ -25,6 +25,10 @@ export interface WorkerSpawn {
     depth: number;
     /** Sent as `authenticate` after `initialize` when the agent lists it in `authMethods`; skipped otherwise. */
     authMethodId?: string;
+    /** `_meta` of `initialize.clientCapabilities`, from the harness definition. */
+    clientCapabilitiesMeta?: Record<string, unknown>;
+    /** Appended to the `harness_unavailable` message of an authentication error (`; log in: <hint>`). */
+    loginHint?: string;
 }
 
 /**
@@ -71,7 +75,8 @@ export interface SessionModels {
 
 /**
  * A live adapter process with an open session. Methods reject with ThrongError:
- * `spawn_failed`, `handshake_timeout`, `handshake_failed`, `session_not_found` (from start),
+ * `spawn_failed`, `handshake_timeout`, `handshake_failed`, `session_not_found`, `harness_unavailable` (Authentication
+ * required) from start,
  * `transport_lost` (process died or stream closed mid-call), `agent_error` (JSON-RPC error from the agent).
  * Every message carries the tail of the adapter's stderr.
  */

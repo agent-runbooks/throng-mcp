@@ -37,6 +37,10 @@ How each built-in harness behaves under throng: what you will notice when you us
 - Options: `model`, `reasoning_effort` (category `thought_level`), `mode`.
 - Mode presets: `read-only` (asks the user, workspace-write sandbox), `agent` (default; approvals decided by auto_review, workspace-write), `agent-full-access` (never + danger-full-access).
 - `mcpServers`: stdio, http. Usage without cost. Env `CODEX_CONFIG` = JSON layered over config.toml.
+- Failed turns (codex-acp 2.2.2): by default a backend error of a turn (e.g. "model 'gpt-6.1-sol' is not enabled") arrives as plain agent text and the turn ends `end_turn`, so it would read as the agent's answer. throng therefore declares the JetBrains AIR `sessionFailure` capability in `initialize.clientCapabilities._meta` (`{jetbrains: {air: {version: 1, capabilities: ['sessionFailure']}}}`). Then a failed turn ends with the failure in `PromptResponse._meta.jetbrains.air.sessionFailure` and no agent text, and retry warnings ("Reconnecting… 1/5"), config and deprecation warnings and errors of other turns or after the prompt come as `session_info_update` with the same `_meta`. throng fails the turn `agent_error` only on the `PromptResponse` failure; every `session_info_update` failure, errors included, becomes a warning (DESIGN §4.3).
+- The `jetbrains.air` object also switches codex-acp to its AIR presentation: tool calls skip the "standard" field overrides, permission requests for a started command omit kind and status, `item/mcpToolCall/progress` is dropped, and agent messages carry `_meta.jetbrains.air.phase`.
+- claude-agent-acp reads the same capability; throng does not declare it there, since it changes much more of that adapter's output.
+- Not logged in: the handshake's Authentication required error (-32000) fails with `harness_unavailable`, and the message ends `; log in: codex login`.
 
 ## OpenCode
 

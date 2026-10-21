@@ -90,13 +90,13 @@ Both are a single JSON text block in `content[0].text`; no `structuredContent`, 
 
 ```ts
 type ErrorCode =
-  | 'harness_unavailable'    // unknown harness, adapter command not found (for a built-in harness the message carries the install command, §4.1), or a config error (message starts with `config error:`); checked before spawn
+  | 'harness_unavailable'    // unknown harness, adapter command not found (for a built-in harness the message carries the install command, §4.1), or a config error (message starts with `config error:`); checked before spawn; or the adapter answers the handshake with Authentication required (-32000); the message names the login command when the harness has one (§4.2)
   | 'depth_exceeded'         // §7
   | 'elicitation_unsupported'// permission_answers 'elicit' configured but the client lacks the capability; before spawn
   | 'session_not_found'      // send_message / wait / cancel: unknown id, or the harness can't continue the session (§3.3)
   | 'spawn_failed'           // the adapter process could not start, or cwd is not a directory
   | 'handshake_timeout'      // initialize + session setup exceeded limits.handshake_s (§4.2)
-  | 'handshake_failed'       // the adapter answered the handshake with an error
+  | 'handshake_failed'       // the adapter answered the handshake with any other error
   | 'model_rejected'         // value not among options; message lists the valid ones
   | 'timeout'                // the turn exceeded timeout_s
   | 'cancelled'              // the client (Esc, TaskStop), a steer, cancel_thronglet or the agent itself; the message names the source
@@ -104,7 +104,7 @@ type ErrorCode =
   | 'empty_result'           // end_turn without a single agent_message_chunk and without a structured result; wait_thronglet: the record holds no turn result
   | 'structured_missing' | 'structured_invalid'   // after 2 corrective re-prompts
   | 'refusal'                // stop_reason refusal is reported as an error
-  | 'agent_error';           // anything else the adapter reported; cancel_thronglet: see §3.8
+  | 'agent_error';           // anything else the adapter reported, including a turn the adapter marks failed (§4.3); cancel_thronglet: see §3.8
 ```
 
 ### 3.3 `send_message`
@@ -317,8 +317,8 @@ One turn = one adapter process on one ACP session; the next turn of the same ses
 
 Sequence:
 1. `spawn` (detached, own group, `stdio: [pipe, pipe, pipe]`, stderr → 64 KB ring buffer for error messages). `THRONG_MCP_DEPTH = depth + 1` in the child env.
-2. `connectWith(ndJsonStream)`, `initialize` (`clientCapabilities: { fs: {readTextFile:false, writeTextFile:false}, terminal:false }`). Then `authenticate { methodId }` when the harness definition names an `authMethodId` and the agent lists it in `authMethods` (Cursor); an error there → `handshake_failed` with the agent's message.
-3. `session/new { cwd, mcpServers: [] }` (+ `_meta` from the harness), or for every later turn `session/resume { sessionId, cwd, mcpServers: [] }` when the agent advertises `sessionCapabilities.resume`, else `session/load` with the same params when the definition sets `continueViaLoad` and the agent advertises `loadSession`; the updates that arrive while `session/load` is pending (the replayed history) are dropped. Neither, or an error from either → `session_not_found`. Steps 1–3 run under the handshake timeout (60 s) → `handshake_timeout`.
+2. `connectWith(ndJsonStream)`, `initialize` (`clientCapabilities: { fs: {readTextFile:false, writeTextFile:false}, terminal:false }`, plus `_meta` when the harness definition sets `clientCapabilitiesMeta`: codex declares the AIR `sessionFailure` capability, [harnesses.md](harnesses.md#codex)). Then `authenticate { methodId }` when the harness definition names an `authMethodId` and the agent lists it in `authMethods` (Cursor); an error there → `handshake_failed` with the agent's message. An Authentication required error (ACP code -32000) at any handshake step, `authenticate` included, → `harness_unavailable` with `<step> failed: <agent message>`, plus `; log in: <command>` when the definition sets a `loginHint` (codex: `codex login`).
+3. `session/new { cwd, mcpServers: [] }` (+ `_meta` from the harness), or for every later turn `session/resume { sessionId, cwd, mcpServers: [] }` when the agent advertises `sessionCapabilities.resume`, else `session/load` with the same params when the definition sets `continueViaLoad` and the agent advertises `loadSession`; the updates that arrive while `session/load` is pending (the replayed history) are dropped. Neither, or an error from either → `session_not_found` (Authentication required is `harness_unavailable`, step 2). Steps 1–3 run under the handshake timeout (60 s) → `handshake_timeout`.
 4. Mode (`setSessionMode`), the harness mode's config options (§4.1), model, effort via `setSessionConfigOption` (model via `session/set_model` for an agent that only has the `models` list). Runs after `session/resume` and `session/load` as well: a fresh adapter process starts in its defaults.
 5. `prompt` → `nextUpdate()` loop until `stop`. Every event → collector + progress.
 6. Structured-output re-prompts (§6): step 5 again.
@@ -340,6 +340,7 @@ From the `session/update` stream:
 - `tool_call` / `tool_call_update`: title → progress.
 - `usage_update` → `cost_usd` (last value; it's cumulative); `PromptResponse.usage` → tokens (summed across turns).
 - `notice` (unstable, but claude sends it) → `warnings`.
+- `_meta.jetbrains.air.sessionFailure` of a `PromptResponse` or a `session_info_update` (codex-acp with the AIR `sessionFailure` capability, §4.2): severity `error` in the `PromptResponse` fails the turn, and unless it ended `cancelled` the call fails `agent_error` ("agent failed the turn (<category>): <title>") before structured parsing, so no corrective prompt follows. A `warning` there, and any failure in a `session_info_update` (retry and config warnings, errors of other turns or after the prompt; codex-acp reports a turn's own error only in its `PromptResponse`) → `warnings` as `<severity> (<category>): <title>` (` — <details>` when present), one per failure id: a later revision replaces the earlier text. Malformed shapes are ignored.
 - everything else: ignored.
 
 ## 5. Permissions
@@ -391,7 +392,7 @@ One mechanism for all harnesses: the result is the agent's final message, read a
 - With `schema` the prompt (`buildPrompt`, `src/prompt.ts`) gets a result-format paragraph after the task: end the turn with a final message that is only one JSON value matching the JSON Schema below. A ```` ```json ```` fence around it is fine. The schema follows verbatim, pretty-printed (`JSON.stringify(schema, null, 2)`).
 - The final message is the turn's agent text after its last `tool_call` (`Collector.finalText`, §4.3), so narration before tool calls does not count. `parseResult` (`src/structured/validate.ts`) takes the whole trimmed message as JSON, else the content of its last fenced code block (three or more backticks or tildes, any info string), else there is no result. JSON with prose before or after it, outside a fence, is no result.
 - A parsed value is validated with ajv: the engine follows `$schema` (`Ajv2020` for 2020-12, draft-07 `Ajv` otherwise, also when `$schema` is absent), since the dialects differ in keyword semantics (`items` tuples vs `prefixItems`). Options: `allErrors`, non-strict, formats not checked.
-- After a turn that ends with `end_turn`, `max_tokens` or `max_turn_requests` and no valid result: a corrective prompt, at most 2. No JSON: "Your final message was not a JSON value. Reply with only the JSON value matching the JSON Schema from the task." JSON the schema rejects: "Your JSON does not match the schema: <ajv errors>. Reply with only the corrected JSON value." After the last one, tool error `structured_missing` ("agent's final message held no JSON after 2 corrective prompts") or `structured_invalid` ("last result does not match the schema: <errors>"), decided by the last turn, with `text` (the last turn's, or the latest non-empty one) and `session_id` in the payload, so the caller sees what the agent said and can resume. `refusal` / `cancelled` fail as without a schema.
+- After a turn that ends with `end_turn`, `max_tokens` or `max_turn_requests` and no valid result: a corrective prompt, at most 2. No JSON: "Your final message was not a JSON value. If you have not finished the task, finish it first. Then end the turn with a final message that is only the JSON value matching the JSON Schema from the task." JSON the schema rejects: "Your JSON does not match the schema: <ajv errors>. Reply with only the corrected JSON value." After the last one, tool error `structured_missing` ("agent's final message held no JSON after 2 corrective prompts") or `structured_invalid` ("last result does not match the schema: <errors>"), decided by the last turn, with `text` (the last turn's, or the latest non-empty one) and `session_id` in the payload, so the caller sees what the agent said and can resume. `refusal` / `cancelled` fail as without a schema.
 - With a valid result the response carries `structured` and omits `text`. A turn with a valid result is never `empty_result`. A turn with no agent text is a missing result and gets a corrective prompt.
 - The same applies to a `send_message` turn with its own `schema`.
 - Check: ajv compiles the schema in the tool's input validation, before spawn. An invalid schema is an input error.

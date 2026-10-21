@@ -267,6 +267,8 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
                     cwd: target.cwd,
                     depth: ctx.depth,
                     ...(def.authMethodId !== undefined ? { authMethodId: def.authMethodId } : {}),
+                    ...(def.clientCapabilitiesMeta ? { clientCapabilitiesMeta: def.clientCapabilitiesMeta } : {}),
+                    ...(def.loginHint !== undefined ? { loginHint: def.loginHint } : {}),
                 },
                 request.kind === 'new'
                     ? {
@@ -340,6 +342,12 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
             });
             collector.endTurn(response);
             if (collector.text) lastText = collector.text;
+            // Before structured parsing: a failed turn gets no corrective prompt (DESIGN §4.3).
+            const failed = collector.turnFailure;
+            if (failed && response.stopReason !== 'cancelled') {
+                const category = failed.category === undefined ? '' : ` (${failed.category})`;
+                throw new ThrongError('agent_error', `agent failed the turn${category}: ${failed.title}`);
+            }
             return response;
         };
 

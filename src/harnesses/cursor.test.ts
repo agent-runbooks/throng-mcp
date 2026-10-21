@@ -58,6 +58,7 @@ async function cursorRun(
 const summary = (calls: FakeCall[]) =>
     calls.map(c => {
         if (c.event === 'start') return `start ${c.argv.slice(1).join(' ')}`.trim();
+        if (c.event === 'initialize') return 'initialize';
         if (c.event === 'authenticate') return `authenticate ${c.methodId}`;
         if (c.event === 'load') return `load ${c.sessionId}`;
         if (c.event === 'new') return 'new';
@@ -150,10 +151,10 @@ describe('cursor harness (fake agent)', () => {
         }
     });
 
-    it('authenticate rejected (no `agent login`) → handshake_failed with the agent message', async () => {
+    it('authenticate rejected (no `agent login`) → harness_unavailable with the agent message', async () => {
         const text = "Not logged in. Please run 'agent login' first.";
         const { outcome, calls, tag } = await cursorRun('cursor/default', 'auto', 'cursor', { FAKE_AUTH_ERROR: text });
-        const payload = failed(outcome, 'handshake_failed');
+        const payload = failed(outcome, 'harness_unavailable');
         expect(payload.message).toBe(`authenticate failed: ${text}`);
         expect(summary(calls)).toStrictEqual(['start --force', 'authenticate cursor_login']);
         expect(tagAlive(tag)).toBe(false);

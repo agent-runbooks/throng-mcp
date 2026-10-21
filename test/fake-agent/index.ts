@@ -32,6 +32,8 @@ export type FakeScenario =
     | 'json-missing'
     | 'json-invalid-always'
     | 'submit-like-ask'
+    | 'session-failure'
+    | 'session-failure-other-turn'
     | 'gemini'
     | 'gemini-permission'
     | 'gemini-write-pong'
@@ -50,7 +52,8 @@ export type FakeScenario =
 // result of the json-* scenarios (JSON);
 // FAKE_CONFIG_OPTIONS — extra `SessionConfigOption[]` (JSON) every session/new and session/resume advertises, select or
 // boolean; FAKE_CALL_LOG — a file the process appends a `FakeCall` JSON line to for its start (argv, the
-// GEMINI_CLI_TRUST_WORKSPACE it sees when set, and every PROBE_* variable it sees), every authenticate, session/load,
+// GEMINI_CLI_TRUST_WORKSPACE it sees when set, and every PROBE_* variable it sees), an initialize that carries
+// `clientCapabilities._meta` (as `clientMeta`), every authenticate, session/load,
 // set_mode, set_config_option (rejected ones included), set_model and prompt, in order; read it with `readFakeCalls`;
 // FAKE_STDERR — a line the process writes to stderr at startup;
 // FAKE_MODELS — gemini-*: raw JSON sent as the session's `models` field; FAKE_AUTH_ERROR — cursor-*: `authenticate`
@@ -62,6 +65,12 @@ export type FakeScenario =
 // `tool_call`, then the JSON. json-invalid-then-valid: `{answer: 1}`, then the valid JSON on a later prompt that carries
 // the ajv error `result/answer must be string` (else `unexpected corrective prompt: <prompt>`). json-missing: prose
 // only, `turn <n>: <prompt without the prefix>`. json-invalid-always: `turn <n>`, a `tool_call`, then `{answer: 1}`.
+// session-failure: shaped like codex-acp 2.2.2 with the AIR `sessionFailure` capability (docs/harnesses.md): two
+// `session_info_update`s whose `_meta.jetbrains.air.sessionFailure` is a warning (id `t1:error`, category `service`,
+// revisions 1 and 2, titles `Reconnecting… 1/2` and `… 2/2`), then `end_turn` with no agent text and the terminal
+// failure in the response's `_meta` (revision 3, severity error, title `model 'fake-model' is not enabled`).
+// session-failure-other-turn: agent text `working on it`, then the same error as a `session_info_update` during the
+// turn (id `t0:error`, as codex-acp reports another turn's error), then `end_turn` without `_meta`.
 // submit-like-ask: a permission request shaped like throng's former submit tool's (title
 // `mcp__throng_result__submit_result`, kind `other`, rawInput `{result}`), then replies `allowed` or `rejected`.
 // gemini, gemini-<scenario>: shaped like Gemini CLI 0.61 in ACP mode (docs/harnesses.md), with the turn of echo or
@@ -91,6 +100,7 @@ export type FakeScenario =
  */
 export type FakeCall =
     | { event: 'start'; argv: string[]; trustWorkspace?: string; allowAll?: string; probes?: Record<string, string> }
+    | { event: 'initialize'; clientMeta: unknown }
     | { event: 'new'; mcpServers: string[] }
     | { event: 'resume'; mcpServers?: string[] }
     | { event: 'set_mode'; modeId: string; resumed: boolean }

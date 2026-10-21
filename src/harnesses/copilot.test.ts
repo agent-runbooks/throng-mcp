@@ -77,6 +77,7 @@ const summary = (calls: FakeCall[]) =>
                 ' '
             );
         }
+        if (c.event === 'initialize') return 'initialize';
         if (c.event === 'authenticate') return `authenticate ${c.methodId}`;
         if (c.event === 'new') return `new [${c.mcpServers.join(', ')}]`;
         if (c.event === 'load') return `load [${(c.mcpServers ?? []).join(', ')}]`;
