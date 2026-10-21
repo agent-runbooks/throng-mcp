@@ -1,5 +1,13 @@
 # throng-mcp
 
+## 0.8.1
+
+### Patch Changes
+
+- [#29](https://github.com/agent-runbooks/throng-mcp/pull/29) [`9955f43`](https://github.com/agent-runbooks/throng-mcp/commit/9955f4333ff56197b5b9d3ff2240bc67adc9259b) Thanks [@Nodge](https://github.com/Nodge)! - When a structured result is missing, the corrective prompt now tells the agent to finish the task first if it hasn't, and only then reply with the JSON. Before, an agent whose turn had broken off (for example on a Codex backend error) answered the bare "reply with only the JSON" with a "failed" result instead of doing the work. See [Structured output](https://github.com/agent-runbooks/throng-mcp/blob/main/skills/throng/SKILL.md#structured-output).
+
+- [#29](https://github.com/agent-runbooks/throng-mcp/pull/29) [`9955f43`](https://github.com/agent-runbooks/throng-mcp/commit/9955f4333ff56197b5b9d3ff2240bc67adc9259b) Thanks [@Nodge](https://github.com/Nodge)! - A harness that isn't logged in now fails with `harness_unavailable` instead of `handshake_failed` (or `session_not_found` on `send_message`), with the adapter's message. For Codex the message ends with `; log in: codex login`; Cursor's own message already says to run `agent login`. See the [troubleshooting table](https://github.com/agent-runbooks/throng-mcp/blob/main/docs/configuration.md#troubleshooting).
+
 ## 0.8.0
 
 ### Minor Changes
