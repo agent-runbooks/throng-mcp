@@ -10,13 +10,6 @@ const stop = (inputTokens?: number, outputTokens?: number): PromptResponse =>
         ? { stopReason: 'end_turn' }
         : { stopReason: 'end_turn', usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens } };
 
-/** codex-acp's `_meta.jetbrains.air.sessionFailure`. */
-const air = (failure: Record<string, unknown>) => ({ jetbrains: { air: { version: 1, sessionFailure: failure } } });
-const failure = (severity: string, title: string, extra: Record<string, unknown> = {}) =>
-    air({ id: 't1:error', revision: 1, category: 'service', severity, title, actions: [], ...extra });
-const info = (meta: Record<string, unknown>): SessionNotification =>
-    note({ sessionUpdate: 'session_info_update', _meta: meta });
-
 describe('collector', () => {
     it('text is the last turn; startTurn resets it', () => {
         const c = new Collector();
@@ -137,77 +130,5 @@ describe('collector', () => {
         expect(c.lastToolTitle).toBe('read a.txt');
         c.handle(note({ sessionUpdate: 'tool_call_update', toolCallId: 't1', title: 'read b.txt' }));
         expect(c.lastToolTitle).toBe('read b.txt');
-    });
-
-    describe('session failures', () => {
-        it('an error in the PromptResponse _meta fails the turn; startTurn clears it', () => {
-            const c = new Collector();
-            c.startTurn();
-            c.endTurn({ stopReason: 'end_turn', _meta: failure('error', "model 'x' is not enabled") });
-            expect(c.turnFailure).toStrictEqual({ category: 'service', title: "model 'x' is not enabled" });
-            expect(c.warnings).toStrictEqual([]);
-            c.startTurn();
-            expect(c.turnFailure).toBe(undefined);
-        });
-
-        it('an error in a session_info_update is a warning, in a turn or outside one', () => {
-            const c = new Collector();
-            c.handle(info(failure('error', 'before', { id: 'a' })));
-            c.startTurn();
-            c.handle(text('partial'));
-            c.handle(info(failure('error', 'boom', { id: 'b', category: undefined })));
-            c.endTurn(stop());
-            expect(c.turnFailure).toBe(undefined);
-            expect(c.text).toBe('partial');
-            c.handle(info(failure('error', 'after', { id: 'c', details: 'stream closed' })));
-            expect(c.warnings).toStrictEqual([
-                'error (service): before',
-                'error: boom',
-                'error (service): after — stream closed',
-            ]);
-        });
-
-        it('warnings: revisions of one id leave one entry with the latest title', () => {
-            const c = new Collector();
-            c.startTurn();
-            c.handle(info(failure('warning', 'Reconnecting… 1/5')));
-            c.handle(note({ sessionUpdate: 'notice', severity: 'warning', title: 'plain' }));
-            c.handle(info(failure('warning', 'Reconnecting… 3/5', { revision: 3 })));
-            c.handle(info(failure('warning', 'other', { id: 't2:error' })));
-            c.endTurn({ stopReason: 'end_turn', _meta: failure('warning', 'Reconnecting… 5/5', { revision: 5 }) });
-            expect(c.turnFailure).toBe(undefined);
-            expect(c.warnings).toStrictEqual([
-                'warning (service): Reconnecting… 5/5',
-                'warning: plain',
-                'warning (service): other',
-            ]);
-        });
-
-        it('the terminal error of a retried failure fails the turn and keeps the last retry warning', () => {
-            const c = new Collector();
-            c.startTurn();
-            c.handle(info(failure('warning', 'Reconnecting… 2/2', { revision: 2 })));
-            c.endTurn({ stopReason: 'end_turn', _meta: failure('error', 'gave up', { revision: 3 }) });
-            expect(c.turnFailure).toStrictEqual({ category: 'service', title: 'gave up' });
-            expect(c.warnings).toStrictEqual(['warning (service): Reconnecting… 2/2']);
-        });
-
-        it('malformed or foreign _meta is ignored', () => {
-            const c = new Collector();
-            c.startTurn();
-            for (const meta of [
-                { throngDepth: '1' },
-                { jetbrains: null },
-                { jetbrains: { air: 'x' } },
-                air({ severity: 'fatal', title: 't' }),
-                air({ severity: 'error', title: 42 }),
-                air({ severity: 'error' }),
-            ]) {
-                c.handle(info(meta));
-                c.endTurn({ stopReason: 'end_turn', _meta: meta });
-            }
-            expect(c.turnFailure).toBe(undefined);
-            expect(c.warnings).toStrictEqual([]);
-        });
     });
 });

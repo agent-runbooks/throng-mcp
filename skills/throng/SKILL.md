@@ -63,4 +63,3 @@ What a thronglet may do on disk comes from the throng config (`~/.config/throng/
 | `transport_lost` | the adapter or the server running the turn died; messages queued behind it are lost; with a `session_id`, `send_message` can resume the session; otherwise start again |
 | `refusal` | the agent declined the task; tell the user, rephrasing rarely helps |
 | `structured_missing`, `structured_invalid` | see Structured output |
-| `agent_error` | the adapter reported an error; `agent failed the turn (<category>): <title>` is the harness backend's own failure (model not available on the account, quota): tell the user, or try another model; retry only when the title says it is transient |

@@ -280,39 +280,6 @@ describe('runThronglet', () => {
         expect(payload.usage).toStrictEqual({ input_tokens: 30, output_tokens: 15 });
     });
 
-    it('a turn the adapter marks failed → agent_error naming the failure; retry warnings collapse to one', async () => {
-        const { loaded, tag } = fakeClaude('session-failure');
-        const ctx = makeCtx(loaded);
-        const payload = failed(await runThronglet(input('claude/fake-small'), ctx), 'agent_error');
-        expect(payload.message).toBe("agent failed the turn (service): model 'fake-model' is not enabled");
-        expect(payload.warnings).toStrictEqual(['warning (service): Reconnecting… 2/2']);
-        expect(payload.session_id?.startsWith('fake-')).toBe(true);
-        expect(payload.usage).toStrictEqual({ input_tokens: 10, output_tokens: 5 });
-        expect('text' in payload).toBe(false);
-        const record = JSON.parse(
-            readFileSync(join(ctx.cacheDir, 'sessions', `${payload.session_id ?? ''}.json`), 'utf8')
-        ) as SessionRecord;
-        expect(record.last_error?.code).toBe('agent_error');
-        expect(record.last_result).toBe(undefined);
-        expect(tagAlive(tag), 'adapter still running').toBe(false);
-    });
-
-    it('schema: a failed turn gets no corrective prompt', async () => {
-        const callLog = join(mkdtempSync(join(root, 'calls-')), 'calls.jsonl');
-        const { loaded } = fakeClaude('session-failure', '', { FAKE_CALL_LOG: callLog });
-        const result = await runThronglet(input('claude/fake-small', { schema: RESULT_SCHEMA }), makeCtx(loaded));
-        const payload = failed(result, 'agent_error');
-        expect(payload.message).toBe("agent failed the turn (service): model 'fake-model' is not enabled");
-        expect(readFakeCalls(callLog).filter(c => c.event === 'prompt')).toHaveLength(1);
-    });
-
-    it('an error in a session_info_update during the turn → a warning; the turn succeeds', async () => {
-        const { loaded } = fakeClaude('session-failure-other-turn');
-        const payload = ok(await runThronglet(input('claude/fake-small'), makeCtx(loaded)));
-        expect(payload.text).toBe('working on it');
-        expect(payload.warnings).toStrictEqual(["error (service): model 'fake-model' is not enabled"]);
-    });
-
     it('schema: a non-correctable stop is not re-prompted', async () => {
         const { loaded } = fakeClaude('refuse');
         const result = await runThronglet(input('claude/fake-small', { schema: RESULT_SCHEMA }), makeCtx(loaded));

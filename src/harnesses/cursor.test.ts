@@ -58,7 +58,6 @@ async function cursorRun(
 const summary = (calls: FakeCall[]) =>
     calls.map(c => {
         if (c.event === 'start') return `start ${c.argv.slice(1).join(' ')}`.trim();
-        if (c.event === 'initialize') return 'initialize';
         if (c.event === 'authenticate') return `authenticate ${c.methodId}`;
         if (c.event === 'load') return `load ${c.sessionId}`;
         if (c.event === 'new') return 'new';

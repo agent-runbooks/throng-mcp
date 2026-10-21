@@ -91,7 +91,6 @@ async function start(
         /** Merged over the fake agent's env. */
         env?: Record<string, string>;
         authMethodId?: string;
-        clientCapabilitiesMeta?: Record<string, unknown>;
     } = {}
 ): Promise<Harness> {
     const spawn = fakeAgentSpawn(scenario);
@@ -107,7 +106,6 @@ async function start(
             cwd,
             depth: options.depth ?? 0,
             ...(options.authMethodId !== undefined ? { authMethodId: options.authMethodId } : {}),
-            ...(options.clientCapabilitiesMeta ? { clientCapabilitiesMeta: options.clientCapabilitiesMeta } : {}),
         },
         options.start ?? newSession,
         {
@@ -456,19 +454,6 @@ describe('worker', () => {
             "session/new failed: Authentication required. Please run 'agent login' first, then call authenticate() with methodId 'cursor_login'.";
         expect(await failing()).toBe(cursorText);
         expect(await failing('codex login')).toBe(`${cursorText}; log in: codex login`);
-    });
-
-    it('initialize carries clientCapabilities._meta only when the spawn sets it', async () => {
-        const dir = mkdtempSync(join(tmpdir(), 'throng-worker-meta-'));
-        const meta = { jetbrains: { air: { version: 1, capabilities: ['sessionFailure'] } } };
-        const withMeta = join(dir, 'with.jsonl');
-        await withWorker('echo', () => undefined, { clientCapabilitiesMeta: meta, env: { FAKE_CALL_LOG: withMeta } });
-        expect(readFakeCalls(withMeta).filter(c => c.event === 'initialize')).toStrictEqual([
-            { event: 'initialize', clientMeta: meta },
-        ]);
-        const without = join(dir, 'without.jsonl');
-        await withWorker('echo', () => undefined, { env: { FAKE_CALL_LOG: without } });
-        expect(readFakeCalls(without).map(c => c.event)).toStrictEqual(['start']);
     });
 
     it('allowLoad on an agent with loadSession only: session/load, its replayed history kept from onUpdate', async () => {

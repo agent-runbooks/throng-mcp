@@ -39,7 +39,6 @@ export async function probeHarness(def: HarnessDefinition, config: Config, opts:
                 cwd,
                 depth: opts.depth,
                 ...(def.authMethodId !== undefined ? { authMethodId: def.authMethodId } : {}),
-                ...(def.clientCapabilitiesMeta ? { clientCapabilitiesMeta: def.clientCapabilitiesMeta } : {}),
                 ...(def.loginHint !== undefined ? { loginHint: def.loginHint } : {}),
             },
             { kind: 'new', cwd, mcpServers: [] },

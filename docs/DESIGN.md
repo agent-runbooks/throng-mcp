@@ -104,7 +104,7 @@ type ErrorCode =
   | 'empty_result'           // end_turn without a single agent_message_chunk and without a structured result; wait_thronglet: the record holds no turn result
   | 'structured_missing' | 'structured_invalid'   // after 2 corrective re-prompts
   | 'refusal'                // stop_reason refusal is reported as an error
-  | 'agent_error';           // anything else the adapter reported, including a turn the adapter marks failed (§4.3); cancel_thronglet: see §3.8
+  | 'agent_error';           // anything else the adapter reported; cancel_thronglet: see §3.8
 ```
 
 ### 3.3 `send_message`
@@ -317,7 +317,7 @@ One turn = one adapter process on one ACP session; the next turn of the same ses
 
 Sequence:
 1. `spawn` (detached, own group, `stdio: [pipe, pipe, pipe]`, stderr → 64 KB ring buffer for error messages). `THRONG_MCP_DEPTH = depth + 1` in the child env.
-2. `connectWith(ndJsonStream)`, `initialize` (`clientCapabilities: { fs: {readTextFile:false, writeTextFile:false}, terminal:false }`, plus `_meta` when the harness definition sets `clientCapabilitiesMeta`: codex declares the AIR `sessionFailure` capability, [harnesses.md](harnesses.md#codex)). Then `authenticate { methodId }` when the harness definition names an `authMethodId` and the agent lists it in `authMethods` (Cursor). An error there → `handshake_failed` with the agent's message, except Authentication required: that error (ACP code -32000) at any handshake step, `authenticate` included, → `harness_unavailable` with `<step> failed: <agent message>`, plus `; log in: <command>` when the definition sets a `loginHint` (codex: `codex login`).
+2. `connectWith(ndJsonStream)`, `initialize` (`clientCapabilities: { fs: {readTextFile:false, writeTextFile:false}, terminal:false }`). Then `authenticate { methodId }` when the harness definition names an `authMethodId` and the agent lists it in `authMethods` (Cursor). An error there → `handshake_failed` with the agent's message, except Authentication required: that error (ACP code -32000) at any handshake step, `authenticate` included, → `harness_unavailable` with `<step> failed: <agent message>`, plus `; log in: <command>` when the definition sets a `loginHint` (codex: `codex login`).
 3. `session/new { cwd, mcpServers: [] }` (+ `_meta` from the harness), or for every later turn `session/resume { sessionId, cwd, mcpServers: [] }` when the agent advertises `sessionCapabilities.resume`, else `session/load` with the same params when the definition sets `continueViaLoad` and the agent advertises `loadSession`; the updates that arrive while `session/load` is pending (the replayed history) are dropped. Neither, or an error from either → `session_not_found` (Authentication required is `harness_unavailable`, step 2). Steps 1–3 run under the handshake timeout (60 s) → `handshake_timeout`.
 4. Mode (`setSessionMode`), the harness mode's config options (§4.1), model, effort via `setSessionConfigOption` (model via `session/set_model` for an agent that only has the `models` list). Runs after `session/resume` and `session/load` as well: a fresh adapter process starts in its defaults.
 5. `prompt` → `nextUpdate()` loop until `stop`. Every event → collector + progress.
@@ -340,7 +340,6 @@ From the `session/update` stream:
 - `tool_call` / `tool_call_update`: title → progress.
 - `usage_update` → `cost_usd` (last value; it's cumulative); `PromptResponse.usage` → tokens (summed across turns).
 - `notice` (unstable, but claude sends it) → `warnings`.
-- `_meta.jetbrains.air.sessionFailure` of a `PromptResponse` or a `session_info_update` (codex-acp with the AIR `sessionFailure` capability, §4.2): severity `error` in the `PromptResponse` fails the turn, and unless it ended `cancelled` the call fails `agent_error` ("agent failed the turn (<category>): <title>") before structured parsing, so no corrective prompt follows. A `warning` there, and any failure in a `session_info_update` (retry and config warnings, errors of other turns or after the prompt; codex-acp reports a turn's own error only in its `PromptResponse`) → `warnings` as `<severity> (<category>): <title>` (` — <details>` when present), one per failure id: a later revision replaces the earlier text. Malformed shapes are ignored.
 - everything else: ignored.
 
 ## 5. Permissions

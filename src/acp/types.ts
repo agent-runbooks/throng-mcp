@@ -25,8 +25,6 @@ export interface WorkerSpawn {
     depth: number;
     /** Sent as `authenticate` after `initialize` when the agent lists it in `authMethods`; skipped otherwise. */
     authMethodId?: string;
-    /** `_meta` of `initialize.clientCapabilities`, from the harness definition. */
-    clientCapabilitiesMeta?: Record<string, unknown>;
     /** Appended to the `harness_unavailable` message of an authentication error (`; log in: <hint>`). */
     loginHint?: string;
 }

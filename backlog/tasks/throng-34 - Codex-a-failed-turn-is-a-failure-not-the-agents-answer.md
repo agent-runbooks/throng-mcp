@@ -1,11 +1,13 @@
 ---
 id: THRONG-34
-title: 'Codex: a failed turn is a failure, not the agent''s answer'
+title: >-
+  Codex failed turns: no AIR opt-in; corrective prompt finishes the task first;
+  login errors are harness_unavailable
 status: Done
 assignee:
   - '@nodge'
 created_date: '2026-10-21 09:49'
-updated_date: '2026-10-21 10:46'
+updated_date: '2026-10-21 17:24'
 labels: []
 milestone: m-3
 dependencies: []
@@ -17,17 +19,15 @@ ordinal: 32000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-codex-acp 2.2.2 reports a backend error of the turn (e.g. "model 'gpt-6.1-sol' is not enabled in rustponsesapi") as plain agent text and ends the turn with end_turn, unless the client declares the AIR extension capability sessionFailure (clientCapabilities._meta.jetbrains.air = {version: 1, capabilities: ['sessionFailure']}). throng declares nothing, so on 2026-10-06 a codex run returned the error text as a successful result (stop_reason end_turn, usage {}), and a schema run sent a corrective prompt after it: the backend had recovered by then, and the model answered with a 'failed' result without doing the task. With the capability, codex-acp ends a failed turn with end_turn plus PromptResponse._meta.jetbrains.air.sessionFailure {severity: 'error', category, title}, and sends retries, warnings and out-of-turn errors as session_info_update with the same _meta. Declaring the AIR extension also turns on AIR-only presentation in codex-acp (tool call rendering, message phase meta); claude-agent-acp reads the same capability and changes more, so it is declared per harness, codex only. Found while going through the coder agent's friction log (nodge, 2026-10-19).
+codex-acp 2.2.2 reports a backend error of the turn (e.g. "model 'gpt-6.1-sol' is not enabled in rustponsesapi") as plain agent text and ends the turn with end_turn. On 2026-10-06 a codex run returned the error text as a successful result (stop_reason end_turn, usage {}), and a schema run sent a corrective prompt after it: the backend had recovered by then, and the model answered with a 'failed' result without doing the task. Typed failures exist only in codex-acp's experimental JetBrains AIR sessionFailure extension. A first version of this task opted into it (verified live); the maintainer rejected that (decision-12): the failed-turn signal is to come from codex-acp upstream (reject session/prompt with a JSON-RPC error for a non-AIR client). This task ships what does not depend on AIR. Found while going through the coder agent's friction log (nodge, 2026-10-19).
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [x] #1 The codex harness declares the AIR sessionFailure capability in initialize; other built-in and custom harnesses send the same clientCapabilities as before
-- [x] #2 A turn whose PromptResponse._meta carries a sessionFailure with severity error fails the call with agent_error naming the failure, with no corrective prompt, whatever the schema
-- [x] #3 A sessionFailure in a session_info_update (any severity: retries, warnings, errors of other turns or after the prompt) or a PromptResponse warning becomes a warning; repeated revisions of one failure id leave one warning with the latest title
-- [x] #4 The corrective prompt for a missing structured result tells the agent to finish the task first if it has not, then reply with the JSON
-- [x] #5 An Authentication required error (ACP code -32000) during the handshake fails with harness_unavailable; for codex the message says to run codex login
-- [x] #6 Tests cover the above through the fake agent; DESIGN.md (§3.2 error codes, §4.2, §4.3), docs/harnesses.md and the user docs describe the behaviour
+- [x] #1 throng declares no AIR or other client-specific _meta in initialize; clientCapabilities are unchanged for every harness
+- [x] #2 The corrective prompt for a missing structured result tells the agent to finish the task first if it has not, then reply with the JSON
+- [x] #3 An Authentication required error (ACP code -32000) at any handshake step fails with harness_unavailable, ahead of the resume/load → session_not_found mapping; for codex the message ends '; log in: codex login'
+- [x] #4 Tests cover the above through the fake agent; DESIGN.md (§3.2, §4.2, §6), docs/harnesses.md (codex: failed turns as text, why no AIR), user docs and the skill describe the behaviour; decision-12 records the AIR decision
 <!-- AC:END -->
 
 ## Definition of Done
@@ -89,6 +89,8 @@ No other harness gets the capability. Don't touch the permission bridge, structu
 - Tests cover the above through the fake agent; DESIGN.md (§3.2 error codes, §4.2, §4.3) and docs/harnesses.md describe the behaviour.
 
 Revised after review (a1): only PromptResponse._meta with severity error fails the turn; every session_info_update failure is a warning. README.md: Cursor without login → harness_unavailable.
+
+Revised 2026-10-21 (nodge, decision-12): no AIR opt-in. Removed clientCapabilitiesMeta, the sessionFailure parsing in the collector, the agent_error throw and their tests/docs. Kept the corrective prompt and the -32000 → harness_unavailable mapping with loginHint.
 <!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
@@ -97,10 +99,14 @@ Revised after review (a1): only PromptResponse._meta with severity error fails t
 Review triage a1 (2026-10-21, main session): codex-acp 2.2.2 sends a severity-error session_info_update only for another turn or after the prompt; the current turn's failure comes only in PromptResponse._meta. Narrowed AC2: only PromptResponse._meta fails the turn, session_info_update failures are warnings.
 
 Run 20261021-throng-34 (runbook-task-cycle): ready. Reviews: Opus 3 findings, Codex 0. Triage: a2 fixed (docs/configuration.md, docs/development.md troubleshooting rows), a1 applied by the main session after the run (narrowed rule), a3 refuted. Live check against real codex-acp 2.2.2 (CODEX_CONFIG model=no-such-model-throng-34, AIR capability declared): PromptResponse stop_reason end_turn, _meta.jetbrains.air.sessionFailure {severity: error, category: service, title: "The 'no-such-model-throng-34' model is not supported when using Codex with a ChatGPT account."}, no agent text; collector.turnFailure set; the model-metadata notice came as a session_info_update warning. Gates: typecheck, lint, test (31 files, 430 tests) green.
+
+Upstream: agentclientprotocol/codex-acp#647 (open, 2026-10-20) already proposes failing session/prompt with internalError for non-AIR clients on terminal turn errors — the fix this task waits for. No new issue filed.
+
+AIR removed (decision-12, nodge 2026-10-21): clientCapabilities back to main for every harness; collector, fake agent and run tests for sessionFailure reverted. Gates: typecheck, lint, test (31 files, 421 tests) green.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-codex now declares the AIR sessionFailure capability (HarnessDefinition.clientCapabilitiesMeta → initialize.clientCapabilities._meta), so codex-acp reports a failed turn in PromptResponse._meta instead of agent text; the collector turns it into agent_error before structured parsing (no corrective prompt), and session_info_update failures (retries, config warnings, other turns' errors) into warnings, one per failure id. The missing-JSON corrective prompt tells the agent to finish the task first. ACP -32000 at handshake → harness_unavailable, with '; log in: codex login' for codex (HarnessDefinition.loginHint). Verified by fake-agent tests (collector, worker, run, codex harness), gates green, and a live codex-acp 2.2.2 run with a rejected model.
+Ships the parts of the Codex failed-turn fix that do not depend on codex-acp's experimental JetBrains AIR extension (decision-12; an AIR opt-in was built, verified live and dropped). The missing-JSON corrective prompt now asks the agent to finish the task first, then reply with the JSON. An ACP Authentication required error (-32000) at any handshake step is harness_unavailable, ahead of the resume/load → session_not_found mapping, with '; log in: codex login' for codex (HarnessDefinition.loginHint). The failed-turn-as-text bug itself waits for agentclientprotocol/codex-acp#647. Verified: worker tests for -32000 on session/new and session/load, codex/cursor harness tests, prompt test; gates green (421 tests).
 <!-- SECTION:FINAL_SUMMARY:END -->

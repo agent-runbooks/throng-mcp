@@ -112,23 +112,6 @@ function withoutPrefix(text: string): string {
     return text.startsWith(`${EXECUTOR_PREFIX}\n\n`) ? text.slice(EXECUTOR_PREFIX.length + 2) : text;
 }
 
-/** session-failure*: codex-acp's `_meta.jetbrains.air.sessionFailure`. */
-function airFailure(failure: Record<string, unknown>): Record<string, unknown> {
-    return { jetbrains: { air: { version: 1, sessionFailure: failure } } };
-}
-
-const FAKE_MODEL_ERROR = "model 'fake-model' is not enabled";
-
-/** session-failure: the terminal failure codex-acp puts into the PromptResponse of a failed turn. */
-const TERMINAL_FAILURE = airFailure({
-    id: 't1:error',
-    revision: 3,
-    category: 'service',
-    severity: 'error',
-    title: FAKE_MODEL_ERROR,
-    actions: ['retry'],
-});
-
 /** Scenarios that end the turn with something other than end_turn. */
 const STOP_REASONS: Partial<Record<string, StopReason>> = { refuse: 'refusal', 'max-turns': 'max_turn_requests' };
 
@@ -403,35 +386,6 @@ async function runTurn(sessionId: string, text: string, client: AgentContext, si
             await send({ sessionUpdate: 'tool_call', toolCallId: 't1', title: 'read README.md', kind: 'read' });
             await say(JSON.stringify(INVALID_RESULT));
             return;
-        case 'session-failure':
-            for (const revision of [1, 2]) {
-                await send({
-                    sessionUpdate: 'session_info_update',
-                    _meta: airFailure({
-                        id: 't1:error',
-                        revision,
-                        category: 'service',
-                        severity: 'warning',
-                        title: `Reconnecting… ${revision}/2`,
-                        actions: [],
-                    }),
-                });
-            }
-            return;
-        case 'session-failure-other-turn':
-            await say('working on it');
-            await send({
-                sessionUpdate: 'session_info_update',
-                _meta: airFailure({
-                    id: 't0:error',
-                    revision: 1,
-                    category: 'service',
-                    severity: 'error',
-                    title: FAKE_MODEL_ERROR,
-                    actions: ['retry'],
-                }),
-            });
-            return;
         case 'submit-like-ask': {
             // Titled like throng's former submit tool: throng must answer it through permission_answers like any other.
             const answer = await client.request(acp.methods.client.session.requestPermission, {
@@ -606,21 +560,16 @@ app =
                       /* never settles */
                   })
           )
-        : app.onRequest('initialize', ctx => {
-              const clientMeta = ctx.params.clientCapabilities?._meta;
-              if (clientMeta != null) record({ event: 'initialize', clientMeta });
-              return {
-                  protocolVersion: acp.PROTOCOL_VERSION,
-                  agentInfo: { name: 'fake-agent', version: '0.0.1' },
-                  agentCapabilities: {
-                      sessionCapabilities:
-                          scenario === 'no-resume' || gemini || cursor || copilot ? {} : { resume: {} },
-                      promptCapabilities: {},
-                      ...(gemini || cursor || copilot ? { loadSession: true } : {}),
-                  },
-                  ...(cursor ? { authMethods: [{ id: 'cursor_login', name: 'Cursor Login' }] } : {}),
-              };
-          });
+        : app.onRequest('initialize', () => ({
+              protocolVersion: acp.PROTOCOL_VERSION,
+              agentInfo: { name: 'fake-agent', version: '0.0.1' },
+              agentCapabilities: {
+                  sessionCapabilities: scenario === 'no-resume' || gemini || cursor || copilot ? {} : { resume: {} },
+                  promptCapabilities: {},
+                  ...(gemini || cursor || copilot ? { loadSession: true } : {}),
+              },
+              ...(cursor ? { authMethods: [{ id: 'cursor_login', name: 'Cursor Login' }] } : {}),
+          }));
 
 /** cursor-*: session/new and session/load need `authenticate` first. */
 function requireAuth(): void {
@@ -796,9 +745,7 @@ app.onRequest('session/new', async ctx => {
         if (controller.signal.aborted) return { stopReason: 'cancelled' as const };
         const stopReason = STOP_REASONS[turnScenario] ?? 'end_turn';
         if (gemini) return { stopReason };
-        const usage = { inputTokens: 10, outputTokens: 5, totalTokens: 15 };
-        if (turnScenario === 'session-failure') return { stopReason, usage, _meta: TERMINAL_FAILURE };
-        return { stopReason, usage };
+        return { stopReason, usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } };
     })
     .onNotification('session/cancel', ctx => {
         sessions.get(ctx.params.sessionId)?.pending?.abort();

@@ -18,8 +18,6 @@ export const codex: HarnessDefinition = {
         if (level === 'max' && options.includes('xhigh')) return 'xhigh';
         return undefined;
     },
-    // Without it codex-acp sends a failed turn's error as agent text and ends the turn normally (docs/harnesses.md).
-    clientCapabilitiesMeta: { jetbrains: { air: { version: 1, capabilities: ['sessionFailure'] } } },
     loginHint: 'codex login',
     // `read-only` makes codex ask the client for every approval; permission_answers answer there.
     permissionSetup: mode => ({ modeId: mode === 'auto' ? 'agent' : 'read-only' }),

@@ -193,7 +193,7 @@ class AcpWorker implements Worker {
 
     /** Steps 1–3 of DESIGN §4.2 under one `handshakeMs` timer; any failure kills the tree before rejecting. */
     async handshake(start: SessionStart, spawn: WorkerSpawn): Promise<void> {
-        const { authMethodId, clientCapabilitiesMeta } = spawn;
+        const { authMethodId } = spawn;
         let step: HandshakeStep = 'initialize';
         let timer: NodeJS.Timeout | undefined;
         const timeout = new Promise<never>((_, reject) => {
@@ -216,11 +216,7 @@ class AcpWorker implements Worker {
             const agent = this.#connection.agent;
             const init = await agent.request(acp.methods.agent.initialize, {
                 protocolVersion: acp.PROTOCOL_VERSION,
-                clientCapabilities: {
-                    fs: { readTextFile: false, writeTextFile: false },
-                    terminal: false,
-                    ...(clientCapabilitiesMeta ? { _meta: clientCapabilitiesMeta } : {}),
-                },
+                clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
             });
             if (init.protocolVersion !== acp.PROTOCOL_VERSION) {
                 throw this.#error(
