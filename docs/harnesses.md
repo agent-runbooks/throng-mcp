@@ -37,6 +37,8 @@ How each built-in harness behaves under throng: what you will notice when you us
 - Options: `model`, `reasoning_effort` (category `thought_level`), `mode`.
 - Mode presets: `read-only` (asks the user, workspace-write sandbox), `agent` (default; approvals decided by auto_review, workspace-write), `agent-full-access` (never + danger-full-access).
 - `mcpServers`: stdio, http. Usage without cost. Env `CODEX_CONFIG` = JSON layered over config.toml.
+- Failed turns (codex-acp 2.2.2): a backend error of a turn (e.g. "model 'gpt-6.1-sol' is not enabled") arrives as plain agent text and the turn ends `end_turn`, so throng returns it as the agent's answer. codex-acp reports typed failures only through its experimental JetBrains AIR extension (`_meta.jetbrains.air`), which throng does not opt into (decision-12): it is experimental and switches the adapter's whole output to AIR presentation. The fix waits for [codex-acp#647](https://github.com/agentclientprotocol/codex-acp/issues/647): fail `session/prompt` with a JSON-RPC error for clients without AIR, which throng already reports as `agent_error`.
+- Not logged in: the handshake's Authentication required error (-32000) fails with `harness_unavailable`, and the message ends `; log in: codex login`.
 
 ## OpenCode
 

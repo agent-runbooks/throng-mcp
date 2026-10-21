@@ -24,7 +24,10 @@ export function buildPrompt(task: string, schema?: JsonSchemaObject): string {
 /** Re-prompt after a turn whose final message held no valid result. */
 export function buildCorrectivePrompt(last: Exclude<StructuredResult, { kind: 'ok' }>): string {
     if (last.kind === 'missing') {
-        return 'Your final message was not a JSON value. Reply with only the JSON value matching the JSON Schema from the task.';
+        return (
+            'Your final message was not a JSON value. If you have not finished the task, finish it first. ' +
+            'Then end the turn with a final message that is only the JSON value matching the JSON Schema from the task.'
+        );
     }
     return `Your JSON does not match the schema: ${last.errors}. Reply with only the corrected JSON value.`;
 }

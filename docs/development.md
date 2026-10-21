@@ -95,7 +95,7 @@ On the free API tier a turn can outlast the default 300 s, so add `--timeout 900
 
 Runs 1 and 2 replace your own config for that run, so a `permissions` line of yours can't change the mode; if it sets anything else you need (e.g. `harnesses.gemini.command`), copy it into the file.
 
-The Cursor CLI runs (after `curl https://cursor.com/install -fsS | bash` and `agent login`; `list_harnesses` must show cursor with its models, not a `handshake_failed` asking for `agent login`), with the config files above:
+The Cursor CLI runs (after `curl https://cursor.com/install -fsS | bash` and `agent login`; `list_harnesses` must show cursor with its models, not list it under `unavailable` with Cursor's `agent login` message), with the config files above:
 
 ```bash
 # 1. auto (cursor-agent acp --force): PASS: pong.txt written, PASS: send_message answered pong.txt (session/load)

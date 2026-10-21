@@ -434,22 +434,26 @@ describe('worker', () => {
         expect(readFakeCalls(echoLog).map(c => c.event)).toStrictEqual(['start']);
     });
 
-    it('session/new without authenticate → handshake_failed with the agent message', async () => {
-        const spawn = fakeAgentSpawn('cursor');
-        tags.push(spawn.tag);
-        const err = await rejectsWith(
-            startWorker(
-                { ...spawn, cwd, depth: 0 },
-                newSession,
-                { onPermission: () => Promise.resolve({ outcome: { outcome: 'cancelled' } }) },
-                limits
-            ),
-            'handshake_failed'
-        );
-        expect(err.message).toBe(
-            "session/new failed: Authentication required. Please run 'agent login' first, then call authenticate() with methodId 'cursor_login'."
-        );
-        expect(tagAlive(spawn.tag)).toBe(false);
+    it('session/new failing with Authentication required (-32000) → harness_unavailable, naming the login hint', async () => {
+        const failing = async (loginHint?: string) => {
+            const spawn = fakeAgentSpawn('cursor');
+            tags.push(spawn.tag);
+            const err = await rejectsWith(
+                startWorker(
+                    { ...spawn, cwd, depth: 0, ...(loginHint !== undefined ? { loginHint } : {}) },
+                    newSession,
+                    { onPermission: () => Promise.resolve({ outcome: { outcome: 'cancelled' } }) },
+                    limits
+                ),
+                'harness_unavailable'
+            );
+            expect(tagAlive(spawn.tag)).toBe(false);
+            return err.message;
+        };
+        const cursorText =
+            "session/new failed: Authentication required. Please run 'agent login' first, then call authenticate() with methodId 'cursor_login'.";
+        expect(await failing()).toBe(cursorText);
+        expect(await failing('codex login')).toBe(`${cursorText}; log in: codex login`);
     });
 
     it('allowLoad on an agent with loadSession only: session/load, its replayed history kept from onUpdate', async () => {
@@ -469,6 +473,22 @@ describe('worker', () => {
                 start: { kind: 'resume', sessionId: 'abc', cwd, mcpServers: [], allowLoad: true },
             }
         );
+    });
+
+    it('session/load failing with Authentication required → harness_unavailable, not session_not_found', async () => {
+        const spawn = fakeAgentSpawn('cursor-resume-memory');
+        tags.push(spawn.tag);
+        const err = await rejectsWith(
+            startWorker(
+                { ...spawn, cwd, depth: 0, loginHint: 'agent login' },
+                { kind: 'resume', sessionId: 'abc', cwd, mcpServers: [], allowLoad: true },
+                { onPermission: () => Promise.resolve({ outcome: { outcome: 'cancelled' } }) },
+                limits
+            ),
+            'harness_unavailable'
+        );
+        expect(err.message).toMatch(/^session\/load failed: Authentication required\. .*; log in: agent login$/);
+        expect(tagAlive(spawn.tag)).toBe(false);
     });
 
     it('loadSession without allowLoad → session_not_found; a session/load error → session_not_found with its text', async () => {

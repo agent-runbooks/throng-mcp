@@ -53,6 +53,9 @@ const UNADVERTISED_TERMINAL_METHODS = [
 /** Unstable in ACP v1 and absent from the SDK's typed methods; Gemini CLI selects its model this way (docs/harnesses.md). */
 const SET_MODEL_METHOD = 'session/set_model';
 
+/** ACP's "Authentication required" (`RequestError.authRequired`): the harness CLI is not logged in. */
+const AUTH_REQUIRED = -32000;
+
 type HandshakeStep = 'initialize' | 'authenticate' | 'session/new' | 'session/resume' | 'session/load';
 
 /** How a later turn picks a session up (DESIGN §4.2 step 3); `undefined`: the agent offers no way. */
@@ -88,7 +91,7 @@ export const startWorker: StartWorker = async (spawn, start, hooks, limits) => {
         const message = err instanceof Error ? err.message : String(err);
         throw new ThrongError('spawn_failed', `cannot start adapter ${spawn.command}: ${message}`);
     }
-    await worker.handshake(start, spawn.authMethodId);
+    await worker.handshake(start, spawn);
     return worker;
 };
 
@@ -189,7 +192,8 @@ class AcpWorker implements Worker {
     }
 
     /** Steps 1–3 of DESIGN §4.2 under one `handshakeMs` timer; any failure kills the tree before rejecting. */
-    async handshake(start: SessionStart, authMethodId: string | undefined): Promise<void> {
+    async handshake(start: SessionStart, spawn: WorkerSpawn): Promise<void> {
+        const { authMethodId } = spawn;
         let step: HandshakeStep = 'initialize';
         let timer: NodeJS.Timeout | undefined;
         const timeout = new Promise<never>((_, reject) => {
@@ -286,7 +290,8 @@ class AcpWorker implements Worker {
         try {
             await Promise.race([running, timeout, spawnFailed]);
         } catch (err) {
-            const failure = err instanceof ThrongError ? err : await this.#handshakeError(step, start, err);
+            const failure =
+                err instanceof ThrongError ? err : await this.#handshakeError(step, start, err, spawn.loginHint);
             await this.close();
             throw failure;
         } finally {
@@ -294,7 +299,12 @@ class AcpWorker implements Worker {
         }
     }
 
-    async #handshakeError(step: HandshakeStep, start: SessionStart, err: unknown): Promise<ThrongError> {
+    async #handshakeError(
+        step: HandshakeStep,
+        start: SessionStart,
+        err: unknown,
+        loginHint: string | undefined
+    ): Promise<ThrongError> {
         if (this.#isTransportError(err)) {
             await this.#settleExit();
             if (this.#spawnError) return this.#spawnFailed(this.#spawnError);
@@ -302,6 +312,10 @@ class AcpWorker implements Worker {
             return this.#error(step === 'initialize' ? 'spawn_failed' : 'handshake_failed', cause);
         }
         const detail = describeRpcError(err);
+        if (err instanceof acp.RequestError && err.code === AUTH_REQUIRED) {
+            const login = loginHint === undefined ? '' : `; log in: ${loginHint}`;
+            return this.#error('harness_unavailable', `${step} failed: ${detail}${login}`);
+        }
         if ((step === 'session/resume' || step === 'session/load') && start.kind === 'resume') {
             return this.#error('session_not_found', `${step} ${start.sessionId} failed: ${detail}`);
         }

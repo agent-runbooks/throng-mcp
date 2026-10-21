@@ -46,6 +46,8 @@ export interface HarnessDefinition {
     permissionSetup(mode: HarnessMode): PermissionSetup;
     /** `authenticate` method sent after `initialize` when the agent lists it in `authMethods` (Cursor: `cursor_login`). */
     authMethodId?: string;
+    /** Command that logs the harness in; `harness_unavailable` for an authentication error names it (codex: `codex login`). */
+    loginHint?: string;
     /** Continue sessions through `session/load` when the agent advertises `loadSession` but not `sessionCapabilities.resume`. */
     continueViaLoad?: boolean;
     /** Agent messages outside a turn that are routine for this harness; dropped instead of reported as warnings. */

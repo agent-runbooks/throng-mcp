@@ -23,7 +23,7 @@ describe('buildPrompt', () => {
 describe('buildCorrectivePrompt', () => {
     it('missing and invalid, the latter with the ajv errors', () => {
         expect(buildCorrectivePrompt({ kind: 'missing' })).toBe(
-            'Your final message was not a JSON value. Reply with only the JSON value matching the JSON Schema from the task.'
+            'Your final message was not a JSON value. If you have not finished the task, finish it first. Then end the turn with a final message that is only the JSON value matching the JSON Schema from the task.'
         );
         expect(buildCorrectivePrompt({ kind: 'invalid', errors: 'result/answer must be string' })).toBe(
             'Your JSON does not match the schema: result/answer must be string. Reply with only the corrected JSON value.'

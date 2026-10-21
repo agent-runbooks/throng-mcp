@@ -126,7 +126,7 @@ curl https://cursor.com/install -fsS | bash
 agent login
 ```
 
-throng finds `cursor-agent` on PATH and authenticates with the login `agent login` saved; without that login every run fails with `handshake_failed` and Cursor's message asking to run `agent login`. Its limits under throng: [docs/harnesses.md](docs/harnesses.md#cursor-cli).
+throng finds `cursor-agent` on PATH and authenticates with the login `agent login` saved; without that login every run fails with `harness_unavailable` and Cursor's message asking to run `agent login`. Its limits under throng: [docs/harnesses.md](docs/harnesses.md#cursor-cli).
 
 </details>
 

@@ -267,6 +267,7 @@ export async function runCall(call: Call, ctx: RunContext): Promise<RunOutcome> 
                     cwd: target.cwd,
                     depth: ctx.depth,
                     ...(def.authMethodId !== undefined ? { authMethodId: def.authMethodId } : {}),
+                    ...(def.loginHint !== undefined ? { loginHint: def.loginHint } : {}),
                 },
                 request.kind === 'new'
                     ? {

@@ -55,7 +55,7 @@ What a thronglet may do on disk comes from the throng config (`~/.config/throng/
 
 | code | what to do |
 |---|---|
-| `harness_unavailable`, `model_rejected` | the message says what is missing or lists the valid values; fix the spec, or tell the user what to install or fix in the config |
+| `harness_unavailable`, `model_rejected` | the message says what is missing or lists the valid values; fix the spec, or tell the user what to install, log in to (`; log in: <command>`) or fix in the config |
 | `depth_exceeded` | nesting is at `limits.max_depth`; do the work yourself |
 | `session_not_found` | the id is wrong, the record expired (14 days) or the harness can't continue it; `list_thronglets` has the live ones, and `accepts_messages: false` marks a session that takes no further message |
 | `timeout` | the turn outlived `timeout_s` and was cancelled; the session exists: `send_message` "continue", with a larger `timeout_s` if the work needs it |

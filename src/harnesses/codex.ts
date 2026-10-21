@@ -18,6 +18,7 @@ export const codex: HarnessDefinition = {
         if (level === 'max' && options.includes('xhigh')) return 'xhigh';
         return undefined;
     },
+    loginHint: 'codex login',
     // `read-only` makes codex ask the client for every approval; permission_answers answer there.
     permissionSetup: mode => ({ modeId: mode === 'auto' ? 'agent' : 'read-only' }),
 };
