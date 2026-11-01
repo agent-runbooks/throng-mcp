@@ -8,4 +8,4 @@ dist/
 .claude/worktrees/
 
 # Runbook run directories
-.agent-runbooks/
+.agent-runbooks/runs/
