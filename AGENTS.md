@@ -10,11 +10,11 @@ Project: MCP server `throng` that runs agent harnesses over ACP and returns thei
 
 ## Task cycle
 
-Every code task goes through the `runbook-task-cycle` skill (`.claude/skills/runbook-task-cycle/`): the main session is the orchestrator, `flow.py` keeps the state of the run and prints which step to launch next. The main session drives the backlog lifecycle around it (`backlog instructions task-execution` / `task-finalization`):
+Every code task goes through the `runbook-implement-task` skill (`.claude/skills/runbook-implement-task/`, a copy of the one in [agent-runbooks/gallery](https://github.com/agent-runbooks/gallery/tree/main/skills/runbook-implement-task)) with this project's profile, `.agent-runbooks/implement-task.md`: the main session is the orchestrator, `flow.py` keeps the state of the run and prints which step to launch next. The main session drives the backlog lifecycle around it (`backlog instructions task-execution` / `task-finalization`):
 
 1. `backlog task view THRONG-n --plain`, then `backlog task edit THRONG-n -s "In Progress" -a @<you>`.
 2. The main session researches and writes a self-contained brief: specific DESIGN.md sections, contracts, the task's acceptance criteria, what not to touch. The brief is the plan of record: `backlog task edit THRONG-n --plan "<brief>"`.
-3. Load the skill and run it with inputs `taskId`, `brief`, `repo` (the project directory, or a worktree), optionally `coder` and `maxFixRounds` — implementation by an Opus coder, project checks, dual review (Opus + Codex) with a failure scenario per finding, triage as a step on Fable, fixes by the coder verified by a separate Opus, a polish pass. The run lives in `.agent-runbooks/runs/<date>-<task>/` (gitignored) and ends `ready`, `needs_attention` or `failed`, naming the file to read.
+3. Load the skill and run it with inputs `task` (`THRONG-n`), `brief`, `repo` (the project directory, or a worktree), optionally `maxFixRounds`. The profile gives the checks, the status command that leaves `backlog/` out, and the project rules for the steps. Implementation by an Opus coder, the checks run by `flow.py` itself, dual review (Opus + Codex) with a failure scenario per finding, triage as a step on Fable, fixes by the coder verified by a separate Opus, a polish pass. Every step runs as a thronglet. The run lives in `.agent-runbooks/runs/<date>-<task>/` (gitignored) and ends `ready`, `needs_attention` or `failed`, naming the file to read.
 4. The main session reads that file (`polish.md`, then `verify.md` or `triage.md`) and spot-checks the "Resolved" evidence against the code. Report summary, deviations and findings rejected as not worth it go to `--append-notes`.
 5. Finalization: check acceptance criteria and DoD items only against evidence (tests, command output), `--final-summary`, status `Done`.
 6. One commit to main with the code and the `backlog/` changes, task ID in the message (`THRONG-1: skeleton`). A commit touching `src/` (tests aside) or `package.json` carries a changeset, written by the main session at finalization (`pnpm changeset`). The changeset text is the release note a throng user reads in `CHANGELOG.md`. It says what they can do now or what changed for them, how to use it (agent string, config key, command) and links the user doc, in the words of someone who runs throng rather than someone who reads its code. Each user-visible change gets its own changeset. The 0.5.0 entries are the model. Bump: patch for fixes; minor for new tools, options, harnesses or behaviour; major for a change of the DESIGN §3 contracts. In `package.json` only `dependencies`, `engines`, `bin`, `files` or `exports` count; `devDependencies` and `scripts` alone need none (on a PR branch `pnpm changeset --empty` satisfies `ci:changesets`). Pure docs, tests, backlog and CI commits need none.
@@ -25,7 +25,7 @@ Statuses: `To Do / In Progress / Review / Blocked / Done`. `Review` = the code i
 
 v1 tasks are sequential. Tasks without mutual dependencies (v2: THRONG-6, THRONG-7, THRONG-8) may run in parallel, each in its own worktree under `.claude/worktrees/<name>`, passed as `repo`.
 
-The Codex/GPT coder variant is the same runbook with `coder: codex`. Run it **only** when the maintainer asks explicitly ("on codex"); never picked on its own. Everything else stays the same: checks, dual review, triage, Opus verification of fixes.
+The Codex/GPT coder variant is the same runbook with the executors swapped for one run: `strong: codex/gpt-6.1-sol:high` and `second: claude/opus:high`. Run it **only** when the maintainer asks explicitly ("on codex"); never picked on its own. The checks, the dual review across two vendors and triage stay the same. `strong` also runs review A, the fix verification and polish, so in this variant they run on Codex too.
 
 Work found outside a task's acceptance criteria is not added silently: describe it to the maintainer and create a task only after approval.
 
@@ -33,7 +33,7 @@ Work found outside a task's acceptance criteria is not added silently: describe 
 
 - **Fable (main session)**: backlog lifecycle, briefs, review triage, contracts (tool input/output and `ErrorCode` from DESIGN §3, `HarnessDefinition`, the Worker interface) — edits them itself, doesn't delegate; architecture decisions; spikes against real adapters; commits.
 - **Opus (subagents)**: all other code — implementation and post-review fixes via the runbook; as separate agents, one of the two independent reviews and fix verification.
-- **Codex (thronglets via the throng MCP server, `codex/gpt-6.1-sol:high`)**: the second independent review — another model's view of the code; writes code only in the `coder: 'codex'` variant, on the maintainer's explicit request.
+- **Codex (thronglets via the throng MCP server, `codex/gpt-6.1-sol:high`)**: the second independent review — another model's view of the code; writes code only in the Codex coder variant, on the maintainer's explicit request.
 - **Maintainer (human)**: smoke matrix on real harnesses (DESIGN §9; spends tokens), dogfood at the end of the stage, approves new tasks.
 
 ## Code rules

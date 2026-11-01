@@ -8,4 +8,7 @@ dist/
 .claude/worktrees/
 
 # Runbook run directories
-.agent-runbooks/
+.agent-runbooks/runs/
+
+# Python bytecode from running flow.py
+__pycache__/
