@@ -34,3 +34,15 @@ jobs:
                   commit-message: 'chore(release): version bump'
                   publish-script: pnpm run ci:publish
                   version-script: pnpm run ci:version
+            # Needs id-token: write above: mcp-publisher logs in by OIDC, which also covers the org namespace.
+            # Retries in place: npm may not serve the new version yet, and a job rerun skips this step as nothing is left to publish.
+            - name: Publish to the MCP Registry
+              if: steps.changesets.outputs.published == 'true'
+              run: |
+                  curl -fsSL https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz | tar xz mcp-publisher
+                  ./mcp-publisher login github-oidc
+                  for _ in 1 2 3 4 5; do
+                      ./mcp-publisher publish && exit 0
+                      sleep 30
+                  done
+                  exit 1
