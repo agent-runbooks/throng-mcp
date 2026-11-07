@@ -27,6 +27,7 @@ export function register(server: McpServer, env: ToolEnv): void {
                 'run_thronglet, or its error. With timeout_s elapsed returns {session_id, state, queued} instead. ' +
                 'Idempotent: the result is stored with the session.',
             inputSchema,
+            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         },
         async (args, extra) => {
             const progress = createProgress(extra);

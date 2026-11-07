@@ -14,6 +14,8 @@ export function register(server: McpServer, env: ToolEnv): void {
                 'installed or configured ones that cannot run with the reason, and the server limits. Built-in harnesses ' +
                 'that are not installed are not listed.',
             inputSchema: {},
+            // Not read-only: each probe opens a session, and Cursor persists it under ~/.cursor/acp-sessions.
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
         },
         async () => {
             const { loaded } = env;
