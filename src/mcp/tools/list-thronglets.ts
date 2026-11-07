@@ -14,6 +14,7 @@ export function register(server: McpServer, env: ToolEnv): void {
                 "queue length, accepts_messages (false: send_message to it fails), timestamps and the last error. Live state is this server's; a session run by another throng " +
                 'instance shows what its record says.',
             inputSchema: {},
+            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         },
         async () => jsonResult(await env.track(listThronglets(env.cacheDir, env.sessions)))
     );

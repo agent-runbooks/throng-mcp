@@ -14,6 +14,7 @@ export function register(server: McpServer, env: ToolEnv): void {
                 "Cancels the session's running turn (session/cancel) and drops its queued messages; a pending wait_thronglet " +
                 'returns the cancelled error. The session is idle afterwards and accepts a new send_message. No-op on an idle session.',
             inputSchema: { session_id: z.string().describe('session_id from run_thronglet') },
+            annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
         },
         async args => {
             try {

@@ -93,7 +93,9 @@ function isAlive(pid: number): boolean {
 }
 
 /** Starts the real server over stdio, calls list_harnesses, closes the client and checks the server exited on stdin EOF. */
-async function callListHarnesses(env: Record<string, string>): Promise<{ tools: string[]; out: ListHarnessesOutput }> {
+async function callListHarnesses(
+    env: Record<string, string>
+): Promise<{ tools: { name: string; annotations: unknown }[]; out: ListHarnessesOutput }> {
     const { client, pid, stderr } = await connectServer({ entry: 'src/mcp.ts', cwd: repo, env });
     try {
         const { tools } = await client.listTools();
@@ -103,7 +105,10 @@ async function callListHarnesses(env: Record<string, string>): Promise<{ tools: 
         const content = result.content as { type: string; text: string }[];
         expect(content.length).toBe(1);
         expect(content[0]?.type).toBe('text');
-        return { tools: tools.map(t => t.name), out: JSON.parse(content[0]?.text ?? '') as ListHarnessesOutput };
+        return {
+            tools: tools.map(t => ({ name: t.name, annotations: t.annotations })),
+            out: JSON.parse(content[0]?.text ?? '') as ListHarnessesOutput,
+        };
     } finally {
         const started = Date.now();
         await client.close();
@@ -118,12 +123,35 @@ describe('mcp server over stdio', () => {
     it('without adapters on PATH: no harness listed, default limits', async () => {
         const { tools, out } = await callListHarnesses(serverEnv({}));
         expect(tools).toStrictEqual([
-            'cancel_thronglet',
-            'list_harnesses',
-            'list_thronglets',
-            'run_thronglet',
-            'send_message',
-            'wait_thronglet',
+            {
+                name: 'cancel_thronglet',
+                annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+            },
+            {
+                name: 'list_harnesses',
+                annotations: {
+                    readOnlyHint: false,
+                    destructiveHint: false,
+                    idempotentHint: false,
+                    openWorldHint: false,
+                },
+            },
+            {
+                name: 'list_thronglets',
+                annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+            },
+            {
+                name: 'run_thronglet',
+                annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+            },
+            {
+                name: 'send_message',
+                annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+            },
+            {
+                name: 'wait_thronglet',
+                annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+            },
         ]);
         expect(out.harnesses).toStrictEqual([]);
         expect(out.unavailable).toStrictEqual([]);
