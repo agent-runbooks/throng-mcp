@@ -1,4 +1,6 @@
-import type { PromptResponse, SessionNotification } from '@agentclientprotocol/sdk';
+import type { SessionNotification } from '@agentclientprotocol/sdk';
+// The stable v1 schema has no `PromptResponse.usage` since SDK 2.0, agents still send it.
+import type { PromptResponse } from '@agentclientprotocol/sdk/unstable';
 import type { Usage } from '../contract.ts';
 
 // Folds the session/update stream and prompt responses into the run result (DESIGN §4.3).
