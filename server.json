@@ -1,0 +1,24 @@
+{
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+    "name": "io.github.agent-runbooks/throng-mcp",
+    "title": "throng",
+    "description": "Hands work to another coding agent over ACP: Claude Code, Codex, OpenCode, Gemini CLI and others",
+    "repository": {
+        "url": "https://github.com/agent-runbooks/throng-mcp",
+        "source": "github",
+        "id": "1402202089"
+    },
+    "websiteUrl": "https://github.com/agent-runbooks/throng-mcp#readme",
+    "version": "0.8.1",
+    "packages": [
+        {
+            "registryType": "npm",
+            "identifier": "throng-mcp",
+            "version": "0.8.1",
+            "runtimeHint": "npx",
+            "transport": {
+                "type": "stdio"
+            }
+        }
+    ]
+}

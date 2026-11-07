@@ -34,3 +34,19 @@ jobs:
                   commit-message: 'chore(release): version bump'
                   publish-script: pnpm run ci:publish
                   version-script: pnpm run ci:version
+            # Needs id-token: write above: mcp-publisher logs in by OIDC, which also covers the org namespace.
+            # Retries in place: npm may not serve the new version yet, and a job rerun skips this step as nothing is left to publish.
+            # The binary runs with this job's OIDC, which npm trusts for publishing, so the tarball is pinned by its sha256
+            # from registry_1.8.1_checksums.txt.
+            - name: Publish to the MCP Registry
+              if: steps.changesets.outputs.published == 'true'
+              run: |
+                  curl -fsSL -o mcp-publisher.tar.gz https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz
+                  echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  mcp-publisher.tar.gz" | sha256sum -c -
+                  tar xzf mcp-publisher.tar.gz mcp-publisher
+                  ./mcp-publisher login github-oidc
+                  for _ in 1 2 3 4 5; do
+                      ./mcp-publisher publish && exit 0
+                      sleep 30
+                  done
+                  exit 1

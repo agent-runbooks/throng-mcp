@@ -1,5 +1,6 @@
 {
     "name": "throng-mcp",
+    "mcpName": "io.github.agent-runbooks/throng-mcp",
     "version": "0.8.1",
     "description": "MCP server that delegates work to another agent harness or model over ACP",
     "license": "MIT",
@@ -55,7 +56,7 @@
         "ci:build": "tsdown",
         "changeset": "changeset add",
         "ci:changesets": "changeset status --since=origin/main",
-        "ci:version": "changeset version",
+        "ci:version": "changeset version && node scripts/sync-server-json.ts",
         "ci:publish": "pnpm run ci:build && changeset publish",
         "smoke": "node scripts/smoke/smoke.ts",
         "smoke:claude": "node scripts/smoke/smoke.ts claude/sonnet",
