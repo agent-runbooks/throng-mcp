@@ -72,7 +72,7 @@
         "smoke:copilot-schema": "node scripts/smoke/smoke.ts copilot/auto --schema"
     },
     "devDependencies": {
-        "@agentclientprotocol/sdk": "^1.5.0",
+        "@agentclientprotocol/sdk": "^2.2.0",
         "@changesets/changelog-github": "^1.0.1",
         "@changesets/cli": "^3.0.3",
         "@eslint/js": "^10.0.1",

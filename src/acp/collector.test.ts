@@ -1,4 +1,5 @@
-import type { PromptResponse, SessionNotification, SessionUpdate } from '@agentclientprotocol/sdk';
+import type { SessionNotification, SessionUpdate } from '@agentclientprotocol/sdk';
+import type { PromptResponse } from '@agentclientprotocol/sdk/unstable';
 import { describe, expect, it } from 'vitest';
 import { Collector } from './collector.ts';
 
