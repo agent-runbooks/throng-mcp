@@ -1,5 +1,17 @@
 # throng-mcp
 
+## 0.9.0
+
+### Minor Changes
+
+- [#36](https://github.com/agent-runbooks/throng-mcp/pull/36) [`6ff84b9`](https://github.com/agent-runbooks/throng-mcp/commit/6ff84b9e08cc528f45c27c0cffee74f4c78a27aa) Thanks [@Nodge](https://github.com/Nodge)! - Every throng tool now declares the MCP tool annotations `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint`. Clients that read them can tell the read-only tools (`list_thronglets`, `wait_thronglet`) from the ones that start or stop an agent (`run_thronglet`, `send_message`, `cancel_thronglet`). For example, a client can skip the confirmation prompt for the read-only tools or run them in parallel. `list_harnesses` is marked as changing state but not destructive: to read the models it opens a session in each harness, and some harnesses, Cursor among them, keep that session on disk. Before, the hints were missing, and by the MCP spec a client had to treat every throng tool as one that can change things.
+
+### Patch Changes
+
+- [#34](https://github.com/agent-runbooks/throng-mcp/pull/34) [`e987765`](https://github.com/agent-runbooks/throng-mcp/commit/e987765904ec342017c1569bd0d99d39f6bc47d2) Thanks [@dependabot](https://github.com/apps/dependabot)! - The bundled ACP SDK is now 2.2.0 (was 1.9.0). throng still speaks ACP protocol v1 to harnesses, so nothing changes for installed adapters, and token usage is reported as before.
+
+- [#36](https://github.com/agent-runbooks/throng-mcp/pull/36) [`6ff84b9`](https://github.com/agent-runbooks/throng-mcp/commit/6ff84b9e08cc528f45c27c0cffee74f4c78a27aa) Thanks [@Nodge](https://github.com/Nodge)! - The bundled `fast-uri` (used by the MCP SDK's schema validation) is updated to 3.1.9. That release fixes its advisories on URI scheme and host parsing.
+
 ## 0.8.1
 
 ### Patch Changes
