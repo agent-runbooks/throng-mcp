@@ -87,6 +87,7 @@ export function register(server: McpServer, env: ToolEnv): void {
                 'description names the thronglet for listings. ' +
                 BACKGROUND_NOTE,
             inputSchema,
+            annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         },
         (args, extra) =>
             args.background

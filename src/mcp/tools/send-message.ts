@@ -67,6 +67,7 @@ export function register(server: McpServer, env: ToolEnv): void {
                 'A session its harness cannot continue (resume or load) takes no further message, steer included: list_thronglets shows ' +
                 'it as accepts_messages: false.',
             inputSchema,
+            annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         },
         (args, extra) =>
             args.background
