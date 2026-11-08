@@ -284,6 +284,12 @@ permission_answers: deny  # auto | allow | deny | elicit
 
 throng never answers "always allow", so no rule gets written into the agent's project settings. Per-harness overrides, extra env for an adapter, timeouts and the nesting limit are in [docs/configuration.md](docs/configuration.md).
 
+## What leaves your machine
+
+throng makes no network requests of its own and sends no telemetry. It runs the agent CLIs you installed and logged in to, and each of them sends the prompt and the files it reads to its own model provider, under your account. The calling agent picks the harness from the ones you installed, and what a nested agent may do comes from the config above. With npx, the package comes from the npm registry on the first start.
+
+On disk throng keeps one record per session in `~/.cache/throng/sessions/`: harness, model, effort, working directory, a short description and the last result or error. The server deletes records older than 14 days when it starts. It keeps no transcripts: each harness logs its own sessions.
+
 ## Documentation
 
 - [docs/configuration.md](docs/configuration.md): the config file, environment variables, permissions in detail, auth, troubleshooting.
