@@ -1,5 +1,11 @@
 # throng-mcp
 
+## 0.9.1
+
+### Patch Changes
+
+- [#39](https://github.com/agent-runbooks/throng-mcp/pull/39) [`dead307`](https://github.com/agent-runbooks/throng-mcp/commit/dead307840ea75f94b2844b8f13ace33df9b62d7) Thanks [@Nodge](https://github.com/Nodge)! - The Claude Code plugin now starts a pinned server version, `npx -y throng-mcp@<version>`, instead of `throng-mcp@latest`, and the plugin manifest carries the same `version`. A new throng release no longer reaches you on the next session start: you update when you choose, with `claude plugin marketplace update throng-mcp` and `claude plugin update throng@throng-mcp`. The `npx` commands in the README for Claude Code, Codex and OpenCode are pinned the same way: to update, put the new version into the command. See [Install](https://github.com/agent-runbooks/throng-mcp/blob/main/README.md#install).
+
 ## 0.9.0
 
 ### Minor Changes

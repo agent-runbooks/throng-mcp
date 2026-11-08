@@ -165,7 +165,7 @@ A built-in harness that is not installed (its adapter is not on PATH and `harnes
 ### 3.5 Registration
 
 ```bash
-claude mcp add --scope user throng -- npx -y throng-mcp@0.9.0
+claude mcp add --scope user throng -- npx -y throng-mcp@0.9.1
 ```
 
 Run by the user, not by the tasks: nothing outside the project directory is touched by the work itself. Tool names in Claude: `mcp__throng__run_thronglet`, `mcp__throng__send_message`, `mcp__throng__wait_thronglet`, `mcp__throng__list_thronglets`, `mcp__throng__cancel_thronglet`, `mcp__throng__list_harnesses`.

@@ -9,12 +9,12 @@
         "id": "1402202089"
     },
     "websiteUrl": "https://github.com/agent-runbooks/throng-mcp#readme",
-    "version": "0.9.0",
+    "version": "0.9.1",
     "packages": [
         {
             "registryType": "npm",
             "identifier": "throng-mcp",
-            "version": "0.9.0",
+            "version": "0.9.1",
             "runtimeHint": "npx",
             "transport": {
                 "type": "stdio"

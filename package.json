@@ -1,7 +1,7 @@
 {
     "name": "throng-mcp",
     "mcpName": "io.github.agent-runbooks/throng-mcp",
-    "version": "0.9.0",
+    "version": "0.9.1",
     "description": "MCP server that delegates work to another agent harness or model over ACP",
     "license": "MIT",
     "author": "Maksim Zemskov <maxaz74@gmail.com>",
