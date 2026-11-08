@@ -46,6 +46,13 @@ claude plugin marketplace add agent-runbooks/throng-mcp
 claude plugin install throng@throng-mcp
 ```
 
+The plugin runs the server version it was released with. To move to a newer release:
+
+```bash
+claude plugin marketplace update throng-mcp
+claude plugin update throng@throng-mcp
+```
+
 </details>
 
 ### 1. The server
@@ -54,8 +61,8 @@ The npm package [`throng-mcp`](https://www.npmjs.com/package/throng-mcp). Needs 
 
 Two ways to run it:
 
-- `npx -y throng-mcp` straight in the client config, below. Nothing to install: npx fetches the package on the first start and caches it. The package has no dependencies, so that is one tarball and nothing else.
-- A global install, then the command is `throng-mcp`. Starts faster than going through npx.
+- `npx -y throng-mcp@0.9.0` straight in the client config, below. Nothing to install: npx fetches the package on the first start and caches it. The package has no dependencies, so that is one tarball and nothing else. The version is pinned, so the server changes only when you change it: to update, put the new version from the [changelog](CHANGELOG.md) into the command.
+- A global install, then the command is `throng-mcp`. Starts faster than going through npx. To update, run the install again.
 
   ```bash
   npm i -g throng-mcp
@@ -146,13 +153,13 @@ throng finds `copilot` on PATH; the nested agent uses the login `copilot login` 
 
 ### 3. The MCP client
 
-The client is the session that calls throng. It may be the same program as one of the agents above, or a different one. The server speaks stdio and the command is `npx -y throng-mcp`, or `throng-mcp` after a global install.
+The client is the session that calls throng. It may be the same program as one of the agents above, or a different one. The server speaks stdio and the command is `npx -y throng-mcp@0.9.0`, or `throng-mcp` after a global install.
 
 <details>
 <summary><strong>Claude Code</strong></summary>
 
 ```bash
-claude mcp add --scope user throng -- npx -y throng-mcp
+claude mcp add --scope user throng -- npx -y throng-mcp@0.9.0
 ```
 
 `--scope user` registers it for every project; without it, for the current project only. `claude mcp list` shows the result.
@@ -163,7 +170,7 @@ claude mcp add --scope user throng -- npx -y throng-mcp
 <summary><strong>Codex</strong></summary>
 
 ```bash
-codex mcp add throng -- npx -y throng-mcp
+codex mcp add throng -- npx -y throng-mcp@0.9.0
 ```
 
 </details>
@@ -178,7 +185,7 @@ In `~/.config/opencode/opencode.json`:
   "mcp": {
     "throng": {
       "type": "local",
-      "command": ["npx", "-y", "throng-mcp"],
+      "command": ["npx", "-y", "throng-mcp@0.9.0"],
       "enabled": true
     }
   }
