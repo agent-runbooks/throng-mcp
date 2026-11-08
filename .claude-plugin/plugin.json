@@ -1,5 +1,6 @@
 {
     "name": "throng",
+    "version": "0.9.0",
     "description": "Delegate work to another agent harness or model over ACP: the throng MCP server plus the skill that teaches the calling agent to use it.",
     "author": {
         "name": "Maksim Zemskov",
@@ -12,7 +13,7 @@
     "mcpServers": {
         "throng": {
             "command": "npx",
-            "args": ["-y", "throng-mcp@latest"]
+            "args": ["-y", "throng-mcp@0.9.0"]
         }
     }
 }

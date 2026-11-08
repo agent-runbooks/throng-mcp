@@ -56,7 +56,7 @@
         "ci:build": "tsdown",
         "changeset": "changeset add",
         "ci:changesets": "changeset status --since=origin/main",
-        "ci:version": "changeset version && node scripts/sync-server-json.ts",
+        "ci:version": "changeset version && node scripts/sync-version.ts",
         "ci:publish": "pnpm run ci:build && changeset publish",
         "smoke": "node scripts/smoke/smoke.ts",
         "smoke:claude": "node scripts/smoke/smoke.ts claude/sonnet",
