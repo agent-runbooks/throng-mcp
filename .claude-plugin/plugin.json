@@ -8,6 +8,9 @@
     },
     "homepage": "https://github.com/agent-runbooks/throng-mcp#readme",
     "repository": "https://github.com/agent-runbooks/throng-mcp",
+    "documentationUrl": "https://github.com/agent-runbooks/throng-mcp#readme",
+    "supportUrl": "https://github.com/agent-runbooks/throng-mcp/issues",
+    "privacyPolicyUrl": "https://github.com/agent-runbooks/throng-mcp#what-leaves-your-machine",
     "license": "MIT",
     "keywords": ["mcp", "acp", "delegation", "subagents", "codex", "opencode", "gemini"],
     "mcpServers": {
